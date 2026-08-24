@@ -1,19 +1,22 @@
 'use client';
 import {useEffect} from 'react';
-import {useRouter} from 'next/navigation';
 export default function PdfLinkHandler(){
- const router=useRouter();
  useEffect(()=>{
-  const click=e=>{
-   const a=e.target.closest('a');
-   if(!a)return;
-   const m=a.getAttribute('href')?.match(/^\/ritagli\/([^/]+)\.pdf$/);
-   if(!m)return;
-   e.preventDefault();
-   router.push(`/ritaglio/${encodeURIComponent(m[1])}`);
+  const prepare=()=>{
+   document.querySelectorAll('a[href^="/ritagli/"][href$=".pdf"]').forEach(a=>{
+    const href=a.getAttribute('href');
+    const m=href&&href.match(/^\/ritagli\/([^/]+)\.pdf$/);
+    if(m){
+      a.setAttribute('href',`/ritaglio/${encodeURIComponent(m[1])}`);
+      a.removeAttribute('target');
+      a.removeAttribute('rel');
+    }
+   });
   };
-  document.addEventListener('click',click);
-  return()=>document.removeEventListener('click',click);
- },[router]);
+  prepare();
+  const observer=new MutationObserver(prepare);
+  observer.observe(document.body,{childList:true,subtree:true});
+  return()=>observer.disconnect();
+ },[]);
  return null;
 }
