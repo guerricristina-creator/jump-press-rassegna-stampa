@@ -1,5 +1,6 @@
 import './globals.css';
 import PdfLinkHandler from './PdfLinkHandler';
+import RefreshButton from './components/RefreshButton';
 export const metadata={
   title:'JUMP PRESS Juventus',
   description:'Rassegna stampa Juventus — ultima edizione e archivio',
@@ -10,4 +11,4 @@ export const metadata={
   themeColor:'#0b0d0f'
 };
 export const viewport={width:'device-width',initialScale:1,viewportFit:'cover',themeColor:'#0b0d0f'};
-export default function RootLayout({children}){return <html lang="it"><body><PdfLinkHandler/>{children}</body></html>}
+export default function RootLayout({children}){return <html lang="it"><body><PdfLinkHandler/><RefreshButton/>{children}</body></html>}
