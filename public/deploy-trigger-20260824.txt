@@ -1,0 +1,1 @@
+Force production deployment after iPhone PWA fixes: safe-area header, top refresh control, in-app PDF viewer close handling.
