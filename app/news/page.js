@@ -12,12 +12,14 @@ const SOCIAL_SOURCES=[
  {name:'Gianluigi Longari',handle:'Glongari'},
  {name:'Romeo Agresti',handle:'romeoagresti'},
  {name:'TUTTOmercatoWEB',handle:'TuttoMercatoWeb'},
- {name:'Cronache di Spogliatoio',handle:'CronacheTweet'}
+ {name:'Cronache di Spogliatoio',handle:'CronacheTweet'},
+ {name:'Calcio e Finanza',handle:'CalcioFinanza'},
+ {name:'Paolo Ardoino',handle:'paoloardoino',ardoino:true}
 ];
 
 const INSTAGRAM_SOURCES=[
  {name:'Calcio e Finanza',handles:['calcioefinanza']},
- {name:'Paolo Ardoino',handles:['paoloardoino','paoloardoino_prdn'],ardoino:true}
+ {name:'Paolo Ardoino',handles:['paoloardoino_prdn'],ardoino:true}
 ];
 
 const RSSHUB_INSTANCES=[
@@ -44,8 +46,16 @@ function cleanHtml(value=''){
   .replace(/\s+/g,' ')
   .trim();
 }
+function cleanMarkdown(value=''){
+ return value
+  .replace(/!\[[^\]]*\]\([^)]*\)/g,' ')
+  .replace(/\[([^\]]+)\]\([^)]*\)/g,'$1')
+  .replace(/[*_`>#]/g,' ')
+  .replace(/\s+/g,' ')
+  .trim();
+}
 function relevantToJuve(body='',source={}){
- const base=/\b(juventus|juve|bianconer\w*|spalletti|yildiz|kolo\s*muani|sorloth|zirkzee|mateta|kessie|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|perin|di\s*gregorio|chiellini|comolli)\b/i;
+ const base=/\b(juventus|juve|bianconer\w*|spalletti|yildiz|kolo\s*muani|sorloth|zirkzee|mateta|kessie|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|perin|di\s*gregorio|chiellini|comolli|allianz\s*stadium)\b/i;
  if(base.test(body)) return true;
  if(source.ardoino&&/\b(zebra|zebre|jay)\b/i.test(body)) return true;
  return false;
@@ -82,7 +92,47 @@ function parseSocialFeed(xml,source){
   const status=rawLink.match(/\/status\/(\d+)/)?.[1];
   const link=status?`https://x.com/${source.handle}/status/${status}`:`https://x.com/${source.handle}`;
   return {source:source.name,platform:'X',handle:source.handle,body,date,ts:Date.parse(date)||0,link};
- }).filter(p=>p.body&&(source.official||relevantToJuve(p.body,source))).slice(0,15);
+ }).filter(p=>p.body&&(source.official||relevantToJuve(p.body,source))).slice(0,20);
+}
+function relativeTs(label=''){
+ const s=label.toLowerCase();
+ const now=Date.now();
+ let m=s.match(/(\d+)\s*(minute|min|minutes)\s*ago/); if(m) return now-Number(m[1])*60000;
+ m=s.match(/(\d+)\s*(hour|hours|hr|hrs)\s*ago/); if(m) return now-Number(m[1])*3600000;
+ m=s.match(/(\d+)\s*(day|days)\s*ago/); if(m) return now-Number(m[1])*86400000;
+ m=s.match(/(\d+)\s*(week|weeks)\s*ago/); if(m) return now-Number(m[1])*604800000;
+ return Date.parse(label)||0;
+}
+function parseTwStalker(raw,source){
+ const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ const posts=[];
+ const handle=`@${source.handle}`.toLowerCase();
+ for(let i=0;i<lines.length;i++){
+  const low=lines[i].toLowerCase();
+  if(!low.includes(handle)) continue;
+  if(!/(\d+\s*(minutes?|mins?|hours?|hrs?|days?|weeks?)\s*ago|yesterday|today|\b20\d{2}\b)/i.test(lines[i])) continue;
+  const timeMatch=lines[i].match(/(\d+\s*(?:minutes?|mins?|hours?|hrs?|days?|weeks?)\s*ago|yesterday|today.*|[A-Z][a-z]{2}\s+\d{1,2},?\s+20\d{2}.*)$/i);
+  const dateLabel=timeMatch?.[1]||'';
+  const ts=relativeTs(dateLabel);
+  const chunk=[];
+  let link='';
+  for(let j=i+1;j<Math.min(lines.length,i+16);j++){
+   const l=lines[j];
+   const ll=l.toLowerCase();
+   if(j>i+1&&ll.includes(handle)&&/(\d+\s*(minutes?|hours?|days?|weeks?)\s*ago|\b20\d{2}\b)/i.test(l)) break;
+   const status=l.match(/https?:\/\/(?:x|twitter)\.com\/[^\s)]+\/status\/\d+/i)?.[0];
+   if(status) link=status.replace('twitter.com','x.com');
+   if(/^view details$/i.test(cleanMarkdown(l))) break;
+   if(/^(tweets|followers|following|likes)$/i.test(cleanMarkdown(l))) continue;
+   if(/^\d+[\d,.KMB\s]*$/i.test(cleanMarkdown(l))) continue;
+   chunk.push(l);
+  }
+  const body=cleanMarkdown(chunk.join(' '));
+  if(body&&(source.official||relevantToJuve(body,source))){
+   posts.push({source:source.name,platform:'X',handle:source.handle,body,date:ts?new Date(ts).toISOString():'',ts,link:link||`https://x.com/${source.handle}`});
+  }
+ }
+ return posts.slice(0,12);
 }
 function parseInstagramRss(xml,source,handle){
  const items=[...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
@@ -100,7 +150,7 @@ function parseInstagramRss(xml,source,handle){
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
 }
-async function fetchText(url,timeout=5000,headers={}){
+async function fetchText(url,timeout=3800,headers={}){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeout);
  try{
@@ -109,68 +159,69 @@ async function fetchText(url,timeout=5000,headers={}){
   return await r.text();
  }finally{clearTimeout(timer)}
 }
-async function firstUseful(tasks){
- try{return await Promise.any(tasks.map(async fn=>{
-  const posts=await fn();
-  if(!posts?.length) throw new Error('empty');
-  return posts;
- }));}catch{return []}
+function dedupePosts(posts=[]){
+ const seen=new Set();
+ return posts.sort((a,b)=>b.ts-a.ts).filter(p=>{
+  const key=p.body.toLowerCase().replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
+  if(!key||seen.has(key)) return false;
+  seen.add(key);
+  return true;
+ });
 }
 async function getSocialForSource(source){
- const candidates=[
-  ()=>fetchText(`https://rss.xcancel.com/${source.handle}/rss`,5200).then(xml=>parseSocialFeed(xml,source)),
-  ()=>fetchText(`https://nitter.poast.org/${source.handle}/rss`,5200).then(xml=>parseSocialFeed(xml,source)),
-  ()=>fetchText(`https://twiiit.com/${source.handle}/rss`,5200).then(xml=>parseSocialFeed(xml,source)),
-  ...RSSHUB_INSTANCES.map(base=>()=>fetchText(`${base}/twitter/user/${source.handle}/exclude_replies`,5200).then(xml=>parseSocialFeed(xml,source)))
+ const tasks=[
+  ...RSSHUB_INSTANCES.map(base=>fetchText(`${base}/twitter/user/${source.handle}/exclude_replies`,3400).then(xml=>parseSocialFeed(xml,source))),
+  fetchText(`https://twiiit.com/${source.handle}/rss`,3400).then(xml=>parseSocialFeed(xml,source)),
+  fetchText(`https://r.jina.ai/https://site.twstalker.com/${source.handle}`,4200,{'Accept':'text/plain'}).then(raw=>parseTwStalker(raw,source))
  ];
- return firstUseful(candidates);
+ const settled=await Promise.allSettled(tasks);
+ return dedupePosts(settled.flatMap(r=>r.status==='fulfilled'?r.value:[])).slice(0,12);
 }
 async function getInstagramJson(source,handle){
  const urls=[
   `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`,
-  `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`,
-  `https://www.instagram.com/${encodeURIComponent(handle)}/?__a=1&__d=dis`
+  `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`
  ];
+ const posts=[];
  for(const url of urls){
   try{
-   const raw=await fetchText(url,5200,{'Accept':'application/json,text/plain,*/*','X-IG-App-ID':'936619743392459'});
+   const raw=await fetchText(url,3600,{'Accept':'application/json,text/plain,*/*','X-IG-App-ID':'936619743392459'});
    const data=JSON.parse(raw);
    const user=data?.data?.user||data?.graphql?.user||data?.user;
    const edges=user?.edge_owner_to_timeline_media?.edges||[];
-   const posts=edges.map(({node})=>{
+   for(const {node} of edges){
     const body=node?.edge_media_to_caption?.edges?.[0]?.node?.text?.trim()||'';
     const ts=(Number(node?.taken_at_timestamp)||0)*1000;
     const shortcode=node?.shortcode||'';
-    return {source:source.name,platform:'Instagram',handle,body,date:ts?new Date(ts).toISOString():'',ts,link:shortcode?`https://www.instagram.com/p/${shortcode}/`:`https://www.instagram.com/${handle}/`};
-   }).filter(p=>p.body&&relevantToJuve(p.body,source)).slice(0,12);
-   if(posts.length) return posts;
+    if(body&&relevantToJuve(body,source)) posts.push({source:source.name,platform:'Instagram',handle,body,date:ts?new Date(ts).toISOString():'',ts,link:shortcode?`https://www.instagram.com/p/${shortcode}/`:`https://www.instagram.com/${handle}/`});
+   }
   }catch{}
  }
- return [];
+ return dedupePosts(posts).slice(0,12);
 }
 async function getInstagramForSource(source){
  const tasks=[];
  for(const handle of source.handles){
-  tasks.push(()=>getInstagramJson(source,handle));
+  tasks.push(getInstagramJson(source,handle));
   for(const base of RSSHUB_INSTANCES){
-   tasks.push(()=>fetchText(`${base}/instagram/user/${handle}`,5600).then(xml=>parseInstagramRss(xml,source,handle)));
+   tasks.push(fetchText(`${base}/instagram/user/${handle}`,3800).then(xml=>parseInstagramRss(xml,source,handle)));
   }
  }
- return firstUseful(tasks);
+ const settled=await Promise.allSettled(tasks);
+ return dedupePosts(settled.flatMap(r=>r.status==='fulfilled'?r.value:[])).slice(0,12);
 }
 async function getSocialNews(){
  const groups=await Promise.all([
   ...SOCIAL_SOURCES.map(getSocialForSource),
   ...INSTAGRAM_SOURCES.map(getInstagramForSource)
  ]);
- const seen=new Set();
- return groups.flat()
-  .sort((a,b)=>b.ts-a.ts)
+ const counts=new Map();
+ return dedupePosts(groups.flat())
   .filter(p=>{
-   const clean=p.body.toLowerCase().replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
-   const key=`${p.platform}-${clean}`;
-   if(!clean||seen.has(key)) return false;
-   seen.add(key);
+   const max=p.source==='Juventus'?5:8;
+   const n=counts.get(`${p.platform}-${p.source}`)||0;
+   if(n>=max) return false;
+   counts.set(`${p.platform}-${p.source}`,n+1);
    return true;
   })
   .slice(0,60);
