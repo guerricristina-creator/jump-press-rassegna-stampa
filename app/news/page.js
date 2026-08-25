@@ -15,6 +15,11 @@ const SOCIAL_SOURCES=[
  {name:'Cronache di Spogliatoio',handle:'CronacheTweet'}
 ];
 
+const INSTAGRAM_SOURCES=[
+ {name:'Calcio e Finanza',handle:'calcioefinanza'},
+ {name:'Paolo Ardoino',handle:'paoloardoino_prdn',ardoino:true}
+];
+
 const RSSHUB_INSTANCES=[
  'https://rsshub.stsecurity.moe',
  'https://rsshub.mt.cd',
@@ -38,6 +43,12 @@ function cleanHtml(value=''){
   .replace(/https?:\/\/t\.co\/\S+/gi,'')
   .replace(/\s+/g,' ')
   .trim();
+}
+function relevantToJuve(body='',source={}){
+ const base=/\b(juventus|juve|bianconer\w*)\b/i;
+ if(base.test(body)) return true;
+ if(source.ardoino&&/\b(zebra|zebre|jay)\b/i.test(body)) return true;
+ return false;
 }
 function parseFeed(xml){
  const seen=new Set();
@@ -70,48 +81,98 @@ function parseSocialFeed(xml,source){
   const rawLink=text(b,'link')||text(b,'guid');
   const status=rawLink.match(/\/status\/(\d+)/)?.[1];
   const link=status?`https://x.com/${source.handle}/status/${status}`:`https://x.com/${source.handle}`;
-  return {source:source.name,handle:source.handle,body,date,ts:Date.parse(date)||0,link};
- }).filter(p=>p.body&&(source.official||/\b(juventus|juve)\b/i.test(p.body))).slice(0,12);
+  return {source:source.name,platform:'X',handle:source.handle,body,date,ts:Date.parse(date)||0,link};
+ }).filter(p=>p.body&&(source.official||relevantToJuve(p.body,source))).slice(0,12);
+}
+function parseInstagramRss(xml,source){
+ const items=[...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
+ return items.map(m=>{
+  const b=m[1];
+  const date=text(b,'pubDate')||text(b,'dc:date');
+  const title=cleanHtml(text(b,'title'));
+  const desc=cleanHtml(text(b,'description'));
+  const encoded=cleanHtml(text(b,'content:encoded'));
+  const body=[encoded,desc,title].sort((a,b)=>b.length-a.length)[0]||'';
+  const rawLink=text(b,'link')||text(b,'guid')||`https://www.instagram.com/${source.handle}/`;
+  return {source:source.name,platform:'Instagram',handle:source.handle,body,date,ts:Date.parse(date)||0,link:rawLink};
+ }).filter(p=>p.body&&relevantToJuve(p.body,source)).slice(0,10);
 }
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
 }
-async function fetchText(url,timeout=1900){
+async function fetchText(url,timeout=1900,headers={}){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeout);
  try{
-  const r=await fetch(url,{cache:'no-store',signal:controller.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0 (compatible; JUMP-PRESS/1.0)','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}});
+  const r=await fetch(url,{cache:'no-store',signal:controller.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0 (compatible; JUMP-PRESS/1.0)','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5',...headers}});
   if(!r.ok) throw new Error(`http ${r.status}`);
-  const body=await r.text();
-  if(!body.includes('<item>')) throw new Error('empty feed');
-  return body;
+  return await r.text();
  }finally{clearTimeout(timer)}
 }
 async function getSocialForSource(source){
  for(const base of RSSHUB_INSTANCES){
   try{
    const xml=await fetchText(`${base}/twitter/user/${source.handle}/exclude_replies`,1900);
+   if(!xml.includes('<item>')) throw new Error('empty feed');
    const posts=parseSocialFeed(xml,source);
    if(posts.length) return posts;
   }catch{}
  }
  try{
   const xml=await fetchText(`https://twiiit.com/${source.handle}/rss`,2400);
+  if(!xml.includes('<item>')) throw new Error('empty feed');
   return parseSocialFeed(xml,source);
  }catch{return []}
 }
+async function getInstagramJson(source){
+ const urls=[
+  `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(source.handle)}`,
+  `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(source.handle)}`
+ ];
+ for(const url of urls){
+  try{
+   const raw=await fetchText(url,3300,{'Accept':'application/json,text/plain,*/*','X-IG-App-ID':'936619743392459'});
+   const data=JSON.parse(raw);
+   const edges=data?.data?.user?.edge_owner_to_timeline_media?.edges||[];
+   const posts=edges.map(({node})=>{
+    const body=node?.edge_media_to_caption?.edges?.[0]?.node?.text?.trim()||'';
+    const ts=(Number(node?.taken_at_timestamp)||0)*1000;
+    const shortcode=node?.shortcode||'';
+    return {source:source.name,platform:'Instagram',handle:source.handle,body,date:ts?new Date(ts).toISOString():'',ts,link:shortcode?`https://www.instagram.com/p/${shortcode}/`:`https://www.instagram.com/${source.handle}/`};
+   }).filter(p=>p.body&&relevantToJuve(p.body,source)).slice(0,10);
+   if(posts.length) return posts;
+  }catch{}
+ }
+ return [];
+}
+async function getInstagramForSource(source){
+ const apiPosts=await getInstagramJson(source);
+ if(apiPosts.length) return apiPosts;
+ for(const base of RSSHUB_INSTANCES){
+  try{
+   const xml=await fetchText(`${base}/instagram/user/${source.handle}`,2600);
+   if(!xml.includes('<item>')) throw new Error('empty feed');
+   const posts=parseInstagramRss(xml,source);
+   if(posts.length) return posts;
+  }catch{}
+ }
+ return [];
+}
 async function getSocialNews(){
- const groups=await Promise.all(SOCIAL_SOURCES.map(getSocialForSource));
+ const [xGroups,igGroups]=await Promise.all([
+  Promise.all(SOCIAL_SOURCES.map(getSocialForSource)),
+  Promise.all(INSTAGRAM_SOURCES.map(getInstagramForSource))
+ ]);
  const seen=new Set();
- return groups.flat()
+ return [...xGroups.flat(),...igGroups.flat()]
   .sort((a,b)=>b.ts-a.ts)
   .filter(p=>{
-   const key=p.body.toLowerCase().replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
+   const key=`${p.platform}-${p.body.toLowerCase().replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim()}`;
    if(!key||seen.has(key)) return false;
    seen.add(key);
    return true;
   })
-  .slice(0,40);
+  .slice(0,50);
 }
 async function getNews(){
  try{
@@ -149,13 +210,13 @@ export default async function NewsPage({searchParams}){
   </section>:<>
    <section className="socialintro">
     <b>Social Juventus · ultimi aggiornamenti</b>
-    <span>Solo post delle fonti selezionate che riguardano Juventus/Juve, ordinati dal più recente.</span>
+    <span>X e Instagram: solo contenuti delle fonti selezionate che riguardano Juventus/Juve, ordinati dal più recente.</span>
    </section>
    <section className="socialfeed">
-    {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.link}-${i}`}>
-     <div className="newsmeta"><b>X · {p.source}</b><span>{formatDate(p.date)}</span></div>
+    {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.platform}-${p.link}-${i}`}>
+     <div className="newsmeta"><b>{p.platform} · {p.source}</b><span>{formatDate(p.date)}</span></div>
      <p className="socialtext">{p.body}</p>
-     <span className="newsopen">Apri su X ↗</span>
+     <span className="newsopen">Apri su {p.platform} ↗</span>
     </a>):<div className="newsempty"><b>Nessun post Juventus recuperato in questo momento.</b><span>Premi Aggiorna: il radar riprova tutte le fonti live.</span></div>}
    </section>
   </>}
