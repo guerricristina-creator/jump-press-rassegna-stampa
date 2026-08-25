@@ -1,6 +1,6 @@
 import NewsRefresh from './NewsRefresh';
 
-export const revalidate=1200;
+export const dynamic='force-dynamic';
 
 const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
 
@@ -15,10 +15,22 @@ function text(block,tag){
  return m?decodeXml(m[1].trim()):'';
 }
 function parseFeed(xml){
- return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0,30).map(m=>{
-  const b=m[1];
-  return {title:text(b,'title'),link:text(b,'link'),date:text(b,'pubDate'),source:text(b,'source')};
- }).filter(x=>x.title&&x.link);
+ const seen=new Set();
+ return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
+  .map(m=>{
+   const b=m[1];
+   const date=text(b,'pubDate');
+   return {title:text(b,'title'),link:text(b,'link'),date,source:text(b,'source'),ts:Date.parse(date)||0};
+  })
+  .filter(x=>x.title&&x.link)
+  .sort((a,b)=>b.ts-a.ts)
+  .filter(x=>{
+   const key=x.title.toLowerCase().replace(/\s+/g,' ').trim();
+   if(seen.has(key)) return false;
+   seen.add(key);
+   return true;
+  })
+  .slice(0,60);
 }
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
@@ -26,7 +38,7 @@ function formatDate(value){
 
 async function getNews(){
  try{
-  const r=await fetch(FEED,{next:{revalidate:1200},headers:{'User-Agent':'Mozilla/5.0'}});
+  const r=await fetch(FEED,{cache:'no-store',headers:{'User-Agent':'Mozilla/5.0'}});
   if(!r.ok) throw new Error('feed');
   return parseFeed(await r.text());
  }catch{return []}
@@ -40,7 +52,7 @@ export default async function NewsPage(){
    <div className="top"><div className="brand"><i>JUMP</i> PRESS</div><div className="edition">JUVENTUS · NEWS LIVE</div></div>
    <small>NEWS</small>
    <h1>Juventus <em>news</em></h1>
-   <p className="lead">Ricerca dedicata esclusivamente a <b>Juventus</b>. Il feed viene ricontrollato automaticamente ogni 20 minuti.</p>
+   <p className="lead">Ricerca dedicata esclusivamente a <b>Juventus</b>. Le notizie più recenti vengono mostrate per prime e il feed si aggiorna automaticamente ogni 20 minuti.</p>
    <div className="newsstatus"><span className="liveDot"/> Aggiornamento automatico · 20 min</div>
   </header>
   <section className="newslist">
