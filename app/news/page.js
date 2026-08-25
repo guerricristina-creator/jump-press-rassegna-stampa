@@ -3,6 +3,7 @@ import NewsRefresh from './NewsRefresh';
 export const dynamic='force-dynamic';
 
 const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
+const X_MIRROR='https://twstalker.com';
 
 const SOCIAL_SOURCES=[
  {name:'Juventus',handle:'juventus',official:true,x:'https://x.com/juventus'},
@@ -17,8 +18,6 @@ const SOCIAL_SOURCES=[
  {name:'Cronache di Spogliatoio',handle:'CronacheTweet',x:'https://x.com/CronacheTweet'}
 ];
 
-const SOCIAL_FEEDS=['https://nitter.net','https://nitter.poast.org'];
-
 function decodeXml(s=''){
  return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
   .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'")
@@ -30,7 +29,14 @@ function text(block,tag){
  return m?decodeXml(m[1].trim()):'';
 }
 function cleanHtml(value=''){
- return decodeXml(value).replace(/<br\s*\/?\s*>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+ return decodeXml(value)
+  .replace(/<br\s*\/?\s*>/gi,' ')
+  .replace(/<[^>]+>/g,' ')
+  .replace(/\s+/g,' ')
+  .trim();
+}
+function escapeReg(value=''){
+ return value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 }
 function parseFeed(xml){
  const seen=new Set();
@@ -50,38 +56,41 @@ function parseFeed(xml){
   })
   .slice(0,60);
 }
-function parseSocialFeed(xml,source){
- return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m=>{
-  const b=m[1];
-  const date=text(b,'pubDate');
-  const rawTitle=cleanHtml(text(b,'title'));
-  const rawDescription=cleanHtml(text(b,'description'));
-  const body=(rawDescription&&rawDescription.length>rawTitle.length?rawDescription:rawTitle).replace(/^RT by @?[^:]+:\s*/i,'').trim();
-  const rawLink=text(b,'link');
-  const status=rawLink.match(/\/status\/(\d+)/)?.[1];
-  const link=status?`https://x.com/${source.handle}/status/${status}`:source.x;
-  return {source:source.name,body,date,ts:Date.parse(date)||0,link};
- }).filter(p=>p.body&&(source.official||/\b(juventus|juve)\b/i.test(p.body))).slice(0,10);
+function tweetTimestamp(id){
+ try{return Number((BigInt(id)>>22n)+1288834974657n)}catch{return 0}
+}
+function parseSocialPage(html,source){
+ const chunks=html.split(/<div class=["']activity-posts["']>/i).slice(1,30);
+ const statusRe=new RegExp(`href=["']\\/${escapeReg(source.handle)}\\/status\\/(\\d+)["']`,'i');
+ const posts=[];
+ for(const chunk of chunks){
+  const status=chunk.match(statusRe)?.[1];
+  if(!status) continue;
+  const raw=chunk.match(/<div class=["']activity-descp["']>\s*<p>([\s\S]*?)<\/p>/i)?.[1];
+  const body=cleanHtml(raw||'');
+  if(!body) continue;
+  if(!source.official&&!/\b(juventus(?:fc)?|juve)\b/i.test(body)) continue;
+  const ts=tweetTimestamp(status);
+  if(!ts) continue;
+  posts.push({source:source.name,body,date:new Date(ts).toISOString(),ts,link:`https://x.com/${source.handle}/status/${status}`});
+  if(posts.length>=10) break;
+ }
+ return posts;
 }
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
 }
-async function fetchXml(url){
- const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),4500);
- try{
-  const r=await fetch(url,{cache:'no-store',signal:controller.signal,headers:{'User-Agent':'Mozilla/5.0'}});
-  if(!r.ok) throw new Error('feed');
-  const xml=await r.text();
-  if(!xml.includes('<item>')) throw new Error('empty');
-  return xml;
- }finally{clearTimeout(timer)}
-}
 async function getSocialForSource(source){
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),6000);
  try{
-  const xml=await Promise.any(SOCIAL_FEEDS.map(base=>fetchXml(`${base}/${source.handle}/rss`)));
-  return parseSocialFeed(xml,source);
- }catch{return []}
+  const r=await fetch(`${X_MIRROR}/${source.handle}`,{
+   cache:'no-store',signal:controller.signal,redirect:'follow',
+   headers:{'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/139 Safari/537.36','Accept':'text/html,application/xhtml+xml'}
+  });
+  if(!r.ok) return [];
+  return parseSocialPage(await r.text(),source);
+ }catch{return []}finally{clearTimeout(timer)}
 }
 async function getSocialNews(){
  const groups=await Promise.all(SOCIAL_SOURCES.map(getSocialForSource));
@@ -136,11 +145,7 @@ export default async function NewsPage({searchParams}){
      <div className="newsmeta"><b>X · {p.source}</b><span>{formatDate(p.date)}</span></div>
      <p className="socialtext">{p.body}</p>
      <span className="newsopen">Apri post ↗</span>
-    </a>):<div className="newsempty"><b>Nessun post Juventus recuperato in questo momento.</b><span>Il radar riprova automaticamente; sotto restano i collegamenti alle fonti monitorate.</span></div>}
-   </section>
-   <section className="socialsources">
-    <small>FONTI MONITORATE</small>
-    <div>{SOCIAL_SOURCES.map(s=><a href={s.x} target="_blank" rel="noreferrer" key={s.name}>{s.name}</a>)}</div>
+    </a>):<div className="newsempty"><b>Nessun aggiornamento social disponibile adesso.</b><span>Il radar riprova automaticamente ogni 20 minuti.</span></div>}
    </section>
   </>}
 
