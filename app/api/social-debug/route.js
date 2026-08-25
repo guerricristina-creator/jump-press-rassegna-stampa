@@ -1,25 +1,25 @@
 export const dynamic='force-dynamic';
-const BASE='https://rsshub.stsecurity.moe';
 const TESTS=[
- ['X','Juventus',`${BASE}/twitter/user/juventusfc/exclude_replies`],
- ['X','Di Marzio',`${BASE}/twitter/user/DiMarzio/exclude_replies`],
- ['X','Fabrizio Romano',`${BASE}/twitter/user/FabrizioRomano/exclude_replies`],
- ['X','Schira',`${BASE}/twitter/user/NicoSchira/exclude_replies`],
- ['X','Longari',`${BASE}/twitter/user/Glongari/exclude_replies`],
- ['X','Agresti',`${BASE}/twitter/user/romeoagresti/exclude_replies`],
- ['X','TMW',`${BASE}/twitter/user/TuttoMercatoWeb/exclude_replies`],
- ['X','Cronache',`${BASE}/twitter/user/CronacheTweet/exclude_replies`],
- ['X','Calcio e Finanza',`${BASE}/twitter/user/CalcioFinanza/exclude_replies`],
- ['X','Paolo Ardoino',`${BASE}/twitter/user/paoloardoino/exclude_replies`],
- ['Instagram','Calcio e Finanza',`${BASE}/instagram/user/calcioefinanza`],
- ['Instagram','Paolo Ardoino',`${BASE}/instagram/user/paoloardoino_prdn`]
+ ['Calcio e Finanza','calcioefinanza'],
+ ['Paolo Ardoino','paoloardoino_prdn']
 ];
-async function probe([platform,name,url]){
- const c=new AbortController();const t=setTimeout(()=>c.abort(),9000);
- try{
-  const r=await fetch(url,{cache:'no-store',signal:c.signal,headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml,application/xml,text/xml,*/*'}});
-  const body=await r.text();
-  return {platform,name,status:r.status,len:body.length,items:(body.match(/<item>/g)||[]).length,hasJuve:/juventus|juve|kessie|miretti|sorloth|zirkzee|spalletti|yildiz/i.test(body),sample:body.slice(0,220)};
- }catch(e){return {platform,name,error:String(e)}}finally{clearTimeout(t)}
+async function probe([name,handle]){
+ const urls=[
+  `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`,
+  `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`,
+  `https://www.instagram.com/${encodeURIComponent(handle)}/?__a=1&__d=dis`
+ ];
+ const out=[];
+ for(const url of urls){
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),8000);
+  try{
+   const r=await fetch(url,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36','Accept':'application/json,text/plain,*/*','X-IG-App-ID':'936619743392459'}});
+   const body=await r.text();
+   let edges=0;let hasJuve=false;
+   try{const d=JSON.parse(body);const user=d?.data?.user||d?.graphql?.user||d?.user;edges=user?.edge_owner_to_timeline_media?.edges?.length||0;hasJuve=/juventus|juve|spalletti|yildiz|kessie/i.test(JSON.stringify(user||{}));}catch{}
+   out.push({url,status:r.status,len:body.length,edges,hasJuve,sample:body.slice(0,250)});
+  }catch(e){out.push({url,error:String(e)})}finally{clearTimeout(t)}
+ }
+ return {name,handle,out};
 }
 export async function GET(){return Response.json(await Promise.all(TESTS.map(probe)),{headers:{'Cache-Control':'no-store'}})}
