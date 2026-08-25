@@ -8,7 +8,11 @@ export default function AppControls(){
  const onArchiveIndex=pathname==='/archivio';
  const inNews=pathname.startsWith('/news');
  const refreshHome=()=>{window.location.replace('/?v='+Date.now())};
- const refreshNews=()=>{window.location.replace('/news?v='+Date.now())};
+ const refreshNews=()=>{
+  const url=new URL(window.location.href);
+  url.searchParams.set('v',Date.now().toString());
+  window.location.replace(url.pathname+'?'+url.searchParams.toString());
+ };
 
  if(onArchiveIndex){
   return <div className="appcontrols"><Link className="backbutton" href="/">← <span>Indietro</span></Link></div>;
