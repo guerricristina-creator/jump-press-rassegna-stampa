@@ -4,7 +4,7 @@ import NewsRefresh from './NewsRefresh';
 export const dynamic='force-dynamic';
 
 const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
-const X_FEED_BASE='https://rsshub.stsecurity.moe';
+const X_FEED_BASES=['https://rsshub.edwardcc.com','https://rsshub.stsecurity.moe'];
 const SOCIAL_MAX_AGE=3*24*60*60*1000;
 
 const SOCIAL_SOURCES=[
@@ -84,22 +84,27 @@ function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
 }
 async function fetchXXml(handle){
- const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),4500);
- try{
-  const r=await fetch(`${X_FEED_BASE}/twitter/user/${handle}/exclude_replies`,{
-   cache:'no-store',signal:controller.signal,redirect:'follow',
-   headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}
-  });
-  if(!r.ok) throw new Error(`http ${r.status}`);
-  const xml=await r.text();
-  if(!/<item>/i.test(xml)) throw new Error('empty feed');
-  return xml;
- }finally{clearTimeout(timer)}
+ let lastError=null;
+ for(const base of X_FEED_BASES){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),5000);
+  try{
+   const r=await fetch(`${base}/twitter/user/${handle}/exclude_replies`,{
+    cache:'no-store',signal:controller.signal,redirect:'follow',
+    headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}
+   });
+   if(!r.ok) throw new Error(`http ${r.status}`);
+   const xml=await r.text();
+   if(!/<item>/i.test(xml)) throw new Error('empty feed');
+   return xml;
+  }catch(e){lastError=e}
+  finally{clearTimeout(timer)}
+ }
+ throw lastError||new Error('feed unavailable');
 }
 const getCachedXXml=unstable_cache(
  async handle=>fetchXXml(handle),
- ['jump-press-x-feed-v5'],
+ ['jump-press-x-feed-v6'],
  {revalidate:600}
 );
 async function getXForSource(source){
@@ -123,7 +128,7 @@ async function buildSocialNews(){
   const batch=SOCIAL_SOURCES.slice(i,i+2);
   const settled=await Promise.allSettled(batch.map(getXForSource));
   for(const result of settled) if(result.status==='fulfilled') groups.push(result.value);
-  if(i+2<SOCIAL_SOURCES.length) await sleep(140);
+  if(i+2<SOCIAL_SOURCES.length) await sleep(120);
  }
  const cutoff=Date.now()-SOCIAL_MAX_AGE;
  const counts=new Map();
@@ -142,7 +147,7 @@ async function buildSocialNews(){
 }
 const getCachedSocialNews=unstable_cache(
  buildSocialNews,
- ['jump-press-social-snapshot-v5'],
+ ['jump-press-social-snapshot-v6'],
  {revalidate:600}
 );
 async function getSocialNews(){
@@ -185,14 +190,14 @@ export default async function NewsPage({searchParams}){
   </section>:<>
    <section className="socialintro">
     <b>Social Juventus · ultimi aggiornamenti</b>
-    <span>X: fonti selezionate e filtrate sulla Juventus. Il feed conserva uno snapshot stabile e si rinnova ogni 10 minuti.</span>
+    <span>X: fonti selezionate e filtrate sulla Juventus, ordinate dal più recente.</span>
    </section>
    <section className="socialfeed">
     {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.link}-${i}`}>
      <div className="newsmeta"><b>{p.platform} · {p.source}</b><span>{formatDate(p.date)}</span></div>
      <p className="socialtext">{p.body}</p>
      <span className="newsopen">Apri su X ↗</span>
-    </a>):<div className="newsempty"><b>Feed social temporaneamente non raggiungibile.</b><span>Riprova con Aggiorna tra poco: i post validi vengono mantenuti in cache quando la fonte risponde.</span></div>}
+    </a>):<div className="newsempty"><b>Feed social temporaneamente non raggiungibile.</b><span>Riprova con Aggiorna tra poco.</span></div>}
    </section>
   </>}
 
