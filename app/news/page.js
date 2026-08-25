@@ -4,6 +4,7 @@ export const dynamic='force-dynamic';
 
 const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
 const X_FEED_BASE='https://rsshub.stsecurity.moe';
+const SOCIAL_MAX_AGE=7*24*60*60*1000;
 
 const SOCIAL_SOURCES=[
  {name:'Juventus',handle:'juventusfc',official:true},
@@ -42,8 +43,11 @@ function cleanHtml(value=''){
   .trim();
 }
 function relevantToJuve(body='',source={}){
- const re=/\b(juventus|juve|bianconer\w*|spalletti|yildiz|kolo\s*muani|sorloth|zirkzee|mateta|kessie|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|perin|di\s*gregorio|chiellini|comolli|allianz\s*stadium)\b/i;
- if(re.test(body)) return true;
+ const direct=/\b(juventus|juve|bianconer\w*|allianz\s*stadium)\b/i;
+ if(direct.test(body)) return true;
+ const strong=/\b(spalletti|yildiz|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|di\s*gregorio|chiellini|comolli)\b/i;
+ if(strong.test(body)) return true;
+ if(/\bkolo\s*muani\b/i.test(body)&&/\bspalletti\b/i.test(body)) return true;
  return Boolean(source.ardoino&&/\b(zebra|zebre|jay)\b/i.test(body));
 }
 function parseNewsFeed(xml){
@@ -135,8 +139,10 @@ async function getSocialNews(){
   ...SOCIAL_SOURCES.map(getXForSource),
   ...INSTAGRAM_SOURCES.map(getInstagramForSource)
  ]);
+ const cutoff=Date.now()-SOCIAL_MAX_AGE;
  const counts=new Map();
  return dedupePosts(groups.flat())
+  .filter(p=>p.ts>=cutoff)
   .filter(p=>{
    const max=p.source==='Juventus'?4:7;
    const key=`${p.platform}-${p.source}`;
@@ -183,7 +189,7 @@ export default async function NewsPage({searchParams}){
   </section>:<>
    <section className="socialintro">
     <b>Social Juventus · ultimi aggiornamenti</b>
-    <span>X e Instagram: fonti multiple, solo contenuti Juventus/Juve, ordinati dal più recente.</span>
+    <span>Post recenti dalle fonti monitorate, solo se riguardano la Juventus, ordinati dal più recente.</span>
    </section>
    <section className="socialfeed">
     {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.platform}-${p.link}-${i}`}>
