@@ -2,7 +2,7 @@
 import {useEffect} from 'react';
 import {useRouter} from 'next/navigation';
 
-// social radar deploy marker
+// social radar deploy marker v2
 export default function NewsRefresh(){
  const router=useRouter();
  useEffect(()=>{
