@@ -7,7 +7,8 @@ export default function AppControls(){
  const inArchive=pathname.startsWith('/archivio');
  const onArchiveIndex=pathname==='/archivio';
  const inNews=pathname.startsWith('/news');
- const refresh=()=>{window.location.replace('/?v='+Date.now())};
+ const refreshHome=()=>{window.location.replace('/?v='+Date.now())};
+ const refreshNews=()=>{window.location.replace('/news?v='+Date.now())};
 
  if(onArchiveIndex){
   return <div className="appcontrols"><Link className="backbutton" href="/">← <span>Indietro</span></Link></div>;
@@ -18,8 +19,8 @@ export default function AppControls(){
  }
 
  if(inNews){
-  return <div className="appcontrols"><Link className="backbutton" href="/">← <span>Rassegna</span></Link></div>;
+  return <div className="appcontrols"><button type="button" onClick={refreshNews} aria-label="Aggiorna news">↻ <span>Aggiorna</span></button><Link className="backbutton" href="/">← <span>Indietro</span></Link></div>;
  }
 
- return <div className="appcontrols"><Link className="newsbutton" href="/news">News</Link><Link className="archivebutton" href="/archivio">Archivio</Link><button type="button" onClick={refresh} aria-label="Aggiorna rassegna">↻ <span>Aggiorna</span></button></div>;
+ return <div className="appcontrols homecontrols"><div className="navstack"><Link className="archivebutton" href="/archivio">Archivio</Link><Link className="newsbutton" href="/news">News</Link></div><button type="button" onClick={refreshHome} aria-label="Aggiorna rassegna">↻ <span>Aggiorna</span></button></div>;
 }
