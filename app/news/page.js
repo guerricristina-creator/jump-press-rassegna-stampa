@@ -3,10 +3,10 @@ import NewsRefresh from './NewsRefresh';
 export const dynamic='force-dynamic';
 
 const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
-const X_TIMELINE='https://syndication.twitter.com/srv/timeline-profile/screen-name';
+const READER='https://r.jina.ai/https://twstalker.com';
 
 const SOCIAL_SOURCES=[
- {name:'Juventus',handle:'juventus',official:true,x:'https://x.com/juventus'},
+ {name:'Juventus',handle:'juventusfc',official:true,x:'https://x.com/juventusfc'},
  {name:'Gianluca Di Marzio',handle:'DiMarzio',x:'https://x.com/DiMarzio'},
  {name:'Fabrizio Romano',handle:'FabrizioRomano',x:'https://x.com/FabrizioRomano'},
  {name:'Nicolò Schira',handle:'NicoSchira',x:'https://x.com/NicoSchira'},
@@ -28,6 +28,16 @@ function text(block,tag){
  const m=block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,'i'));
  return m?decodeXml(m[1].trim()):'';
 }
+function cleanHtml(value=''){
+ return decodeXml(value)
+  .replace(/<br\s*\/?\s*>/gi,' ')
+  .replace(/<[^>]+>/g,' ')
+  .replace(/\s+/g,' ')
+  .trim();
+}
+function escapeReg(value=''){
+ return value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+}
 function parseFeed(xml){
  const seen=new Set();
  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
@@ -46,44 +56,46 @@ function parseFeed(xml){
   })
   .slice(0,60);
 }
+function tweetTimestamp(id){
+ try{return Number((BigInt(id)>>22n)+1288834974657n)}catch{return 0}
+}
+function parseSocialPage(html,source){
+ const chunks=html.split(/<div class=["']activity-posts["']>/i).slice(1,35);
+ const statusRe=new RegExp(`href=["']\\/${escapeReg(source.handle)}\\/status\\/(\\d+)["']`,'i');
+ const posts=[];
+ for(const chunk of chunks){
+  const status=chunk.match(statusRe)?.[1];
+  if(!status) continue;
+  const raw=chunk.match(/<div class=["']activity-descp["']>\s*<p>([\s\S]*?)<\/p>/i)?.[1];
+  const body=cleanHtml(raw||'');
+  if(!body) continue;
+  if(!source.official&&!/\b(juventus(?:fc)?|juve)\b/i.test(body)) continue;
+  const ts=tweetTimestamp(status);
+  if(!ts) continue;
+  posts.push({source:source.name,body,date:new Date(ts).toISOString(),ts,link:`https://x.com/${source.handle}/status/${status}`});
+  if(posts.length>=10) break;
+ }
+ return posts;
+}
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
 }
-function parseXTimeline(html,source){
- try{
-  const marker='<script id="__NEXT_DATA__" type="application/json">';
-  const start=html.indexOf(marker);
-  if(start<0) return [];
-  const end=html.indexOf('</script>',start+marker.length);
-  if(end<0) return [];
-  const data=JSON.parse(html.slice(start+marker.length,end));
-  const entries=data?.props?.pageProps?.timeline?.entries||[];
-  const posts=[];
-  for(const entry of entries){
-   const t=entry?.content?.tweet;
-   if(!t?.id_str||!t?.text) continue;
-   if(t.retweeted_status) continue;
-   if(t.user?.screen_name&&t.user.screen_name.toLowerCase()!==source.handle.toLowerCase()) continue;
-   const body=String(t.text).replace(/\s+/g,' ').trim();
-   if(!source.official&&!/\b(juventus(?:fc)?|juve)\b/i.test(body)) continue;
-   const ts=Date.parse(t.created_at)||0;
-   if(!ts) continue;
-   posts.push({source:source.name,body,date:t.created_at,ts,link:`https://x.com/${source.handle}/status/${t.id_str}`});
-   if(posts.length>=12) break;
-  }
-  return posts;
- }catch{return []}
-}
 async function getSocialForSource(source){
  const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),5500);
+ const timer=setTimeout(()=>controller.abort(),11000);
  try{
-  const r=await fetch(`${X_TIMELINE}/${source.handle}`,{
-   cache:'no-store',signal:controller.signal,redirect:'follow',
-   headers:{'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/139 Safari/537.36','Accept':'text/html,application/xhtml+xml'}
+  const r=await fetch(`${READER}/${source.handle}`,{
+   cache:'no-store',signal:controller.signal,
+   headers:{
+    'Accept':'text/plain',
+    'X-Respond-With':'html',
+    'X-Engine':'browser',
+    'X-Cache-Tolerance':'1200',
+    'X-Retain-Media':'none'
+   }
   });
   if(!r.ok) return [];
-  return parseXTimeline(await r.text(),source);
+  return parseSocialPage(await r.text(),source);
  }catch{return []}finally{clearTimeout(timer)}
 }
 async function getSocialNews(){
