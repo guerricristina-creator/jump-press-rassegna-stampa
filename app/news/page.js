@@ -16,7 +16,7 @@ const SOCIAL_SOURCES=[
  {name:'Romeo Agresti',handle:'romeoagresti'},
  {name:'TUTTOmercatoWEB',handle:'TuttoMercatoWeb'},
  {name:'Cronache di Spogliatoio',handle:'CronacheTweet'},
- {name:'Calcio e Finanza',handle:'CalcioFinanza'},
+ {name:'Calcio e Finanza',handle:'CalcioFinanza',allPosts:true},
  {name:'Paolo Ardoino',handle:'paoloardoino',ardoino:true}
 ];
 
@@ -78,7 +78,7 @@ function parseXFeed(xml,source){
    const link=status?`https://x.com/${source.handle}/status/${status}`:`https://x.com/${source.handle}`;
    return {source:source.name,platform:'X',body,date,ts:Date.parse(date)||0,link};
   })
-  .filter(p=>p.body&&(source.official||relevantToJuve(p.body,source)));
+  .filter(p=>p.body&&(source.official||source.allPosts||relevantToJuve(p.body,source)));
 }
 function formatDate(value){
  try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
@@ -110,7 +110,8 @@ const getCachedXXml=unstable_cache(
 async function getXForSource(source){
  try{
   const xml=await getCachedXXml(source.handle);
-  return parseXFeed(xml,source).slice(0,12);
+  const posts=parseXFeed(xml,source);
+  return source.allPosts?posts:posts.slice(0,12);
  }catch{return []}
 }
 function dedupePosts(posts=[]){
@@ -135,19 +136,18 @@ async function buildSocialNews(){
  const posts=dedupePosts(groups.flat())
   .filter(p=>p.ts>=cutoff)
   .filter(p=>{
-   const max=p.source==='Juventus'?4:7;
+   const max=p.source==='Calcio e Finanza'?Infinity:(p.source==='Juventus'?4:7);
    const n=counts.get(p.source)||0;
    if(n>=max) return false;
    counts.set(p.source,n+1);
    return true;
-  })
-  .slice(0,50);
+  });
  if(!posts.length) throw new Error('social feed unavailable');
  return posts;
 }
 const getCachedSocialNews=unstable_cache(
  buildSocialNews,
- ['jump-press-social-snapshot-v6'],
+ ['jump-press-social-snapshot-v7'],
  {revalidate:600}
 );
 async function getSocialNews(){
@@ -173,7 +173,7 @@ export default async function NewsPage({searchParams}){
    <div className="top"><div className="brand"><i>JUMP</i> PRESS</div><div className="edition">JUVENTUS · NEWS LIVE</div></div>
    <small>NEWS</small>
    <h1>Juventus <em>news</em></h1>
-   <p className="lead">Radar dedicato esclusivamente a <b>Juventus</b>, con fonti web e social selezionate.</p>
+   <p className="lead">Radar dedicato a <b>Juventus</b>, con fonti web e social selezionate; per <b>Calcio e Finanza</b> vengono mostrati tutti gli aggiornamenti social, anche non Juventus.</p>
    <div className="newstabs">
     <a className={tab==='web'?'active':''} href="/news">WEB</a>
     <a className={tab==='social'?'active':''} href="/news?tab=social">SOCIAL</a>
@@ -190,7 +190,7 @@ export default async function NewsPage({searchParams}){
   </section>:<>
    <section className="socialintro">
     <b>Social Juventus · ultimi aggiornamenti</b>
-    <span>X: fonti selezionate e filtrate sulla Juventus, ordinate dal più recente.</span>
+    <span>X: fonti selezionate e filtrate sulla Juventus; Calcio e Finanza è mostrato integralmente.</span>
    </section>
    <section className="socialfeed">
     {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.link}-${i}`}>
