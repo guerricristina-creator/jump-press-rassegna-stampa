@@ -42,7 +42,6 @@ const SOCIAL_SOURCES=[
  {name:'Paolo Ardoino',handle:'paoloardoino',ardoino:true}
 ];
 
-function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function decodeXml(s=''){
  return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
   .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'")
@@ -111,7 +110,7 @@ async function fetchXXml(handle){
  let lastError=null;
  for(const base of X_FEED_BASES){
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),5000);
+  const timer=setTimeout(()=>controller.abort(),2500);
   try{
    const r=await fetch(`${base}/twitter/user/${handle}/exclude_replies`,{
     cache:'no-store',signal:controller.signal,redirect:'follow',
@@ -128,8 +127,8 @@ async function fetchXXml(handle){
 }
 const getCachedXXml=unstable_cache(
  async handle=>fetchXXml(handle),
- ['jump-press-x-feed-v7'],
- {revalidate:600}
+ ['jump-press-x-feed-v9'],
+ {revalidate:300}
 );
 async function getXForSource(source){
  try{
@@ -148,13 +147,8 @@ function dedupePosts(posts=[]){
  });
 }
 async function buildSocialNews(){
- const groups=[];
- for(let i=0;i<SOCIAL_SOURCES.length;i+=2){
-  const batch=SOCIAL_SOURCES.slice(i,i+2);
-  const settled=await Promise.allSettled(batch.map(getXForSource));
-  for(const result of settled) if(result.status==='fulfilled') groups.push(result.value);
-  if(i+2<SOCIAL_SOURCES.length) await sleep(120);
- }
+ const settled=await Promise.allSettled(SOCIAL_SOURCES.map(getXForSource));
+ const groups=settled.flatMap(result=>result.status==='fulfilled'?[result.value]:[]);
  const cutoff=Date.now()-SOCIAL_MAX_AGE;
  const counts=new Map();
  const posts=dedupePosts(groups.flat())
@@ -171,8 +165,8 @@ async function buildSocialNews(){
 }
 const getCachedSocialNews=unstable_cache(
  buildSocialNews,
- ['jump-press-social-snapshot-v8'],
- {revalidate:600}
+ ['jump-press-social-snapshot-v9'],
+ {revalidate:300}
 );
 async function getSocialNews(){
  try{return await getCachedSocialNews();}
