@@ -2,12 +2,19 @@
 import {useEffect} from 'react';
 import {useRouter} from 'next/navigation';
 
-// social radar deploy marker v2
 export default function NewsRefresh(){
  const router=useRouter();
  useEffect(()=>{
-  const id=setInterval(()=>router.refresh(),20*60*1000);
-  return ()=>clearInterval(id);
+  const refresh=()=>router.refresh();
+  const id=setInterval(refresh,5*60*1000);
+  const onVisible=()=>{if(document.visibilityState==='visible') refresh();};
+  window.addEventListener('focus',refresh);
+  document.addEventListener('visibilitychange',onVisible);
+  return ()=>{
+   clearInterval(id);
+   window.removeEventListener('focus',refresh);
+   document.removeEventListener('visibilitychange',onVisible);
+  };
  },[router]);
  return null;
 }
