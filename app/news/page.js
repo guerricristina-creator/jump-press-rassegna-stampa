@@ -16,6 +16,12 @@ const SOCIAL_SOURCES=[
  {name:'Romeo Agresti',handle:'romeoagresti'},
  {name:'TUTTOmercatoWEB',handle:'TuttoMercatoWeb'},
  {name:'Cronache di Spogliatoio',handle:'CronacheTweet'},
+ {name:'Corriere dello Sport',handle:'CorSport'},
+ {name:'Sport Mediaset',handle:'sportmediaset'},
+ {name:'Sky Sport',handle:'SkySport'},
+ {name:'ilBiancoNero',handle:'ilbianconerocom'},
+ {name:'Fanpage.it',handle:'fanpage'},
+ {name:'Calcio Totale',handle:'calcio_morelli'},
  {name:'Calcio e Finanza',handle:'CalcioFinanza',allPosts:true},
  {name:'Paolo Ardoino',handle:'paoloardoino',ardoino:true}
 ];
@@ -104,7 +110,7 @@ async function fetchXXml(handle){
 }
 const getCachedXXml=unstable_cache(
  async handle=>fetchXXml(handle),
- ['jump-press-x-feed-v6'],
+ ['jump-press-x-feed-v7'],
  {revalidate:600}
 );
 async function getXForSource(source){
@@ -147,7 +153,7 @@ async function buildSocialNews(){
 }
 const getCachedSocialNews=unstable_cache(
  buildSocialNews,
- ['jump-press-social-snapshot-v7'],
+ ['jump-press-social-snapshot-v8'],
  {revalidate:600}
 );
 async function getSocialNews(){
