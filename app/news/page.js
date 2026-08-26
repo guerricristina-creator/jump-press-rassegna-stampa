@@ -3,7 +3,23 @@ import NewsRefresh from './NewsRefresh';
 
 export const dynamic='force-dynamic';
 
-const FEED='https://news.google.com/rss/search?q=Juventus&hl=it&gl=IT&ceid=IT:it';
+const NEWS_QUERIES=[
+ 'Juventus',
+ 'calciomercato Juventus',
+ 'mercato Juventus',
+ 'Juventus Kessie',
+ 'Juventus Sorloth',
+ 'Juventus Zirkzee',
+ 'Juventus Yildiz',
+ 'Juventus Spalletti',
+ 'Juventus Miretti',
+ 'Juventus Gazzetta',
+ 'Juventus Tuttosport',
+ 'Juventus Corriere dello Sport',
+ 'Juventus Sky Sport',
+ 'Juventus Gianluca Di Marzio'
+];
+const FEEDS=NEWS_QUERIES.map(q=>`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=it&gl=IT&ceid=IT:it`);
 const X_FEED_BASES=['https://rsshub.edwardcc.com','https://rsshub.stsecurity.moe'];
 const SOCIAL_MAX_AGE=3*24*60*60*1000;
 
@@ -47,27 +63,29 @@ function cleanHtml(value=''){
 }
 function relevantToJuve(body='',source={}){
  if(/\b(juventus|juve|bianconer\w*|allianz\s*stadium)\b/i.test(body)) return true;
- if(/\b(spalletti|yildiz|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|di\s*gregorio|chiellini|comolli)\b/i.test(body)) return true;
- if(/\bkolo\s*muani\b/i.test(body)&&/\b(spalletti|juve|juventus)\b/i.test(body)) return true;
+ if(/\b(spalletti|yildiz|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|di\s*gregorio|chiellini|comolli|kessi[eé]|sorloth|zirkzee|kolo\s*muani)\b/i.test(body)) return true;
  return Boolean(source.ardoino&&/\b(zebra|zebre|jay)\b/i.test(body));
 }
 function parseNewsFeed(xml){
- const seen=new Set();
  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
   .map(m=>{
    const b=m[1];
    const date=xmlText(b,'pubDate');
    return {title:xmlText(b,'title'),link:xmlText(b,'link'),date,source:xmlText(b,'source'),ts:Date.parse(date)||0};
   })
-  .filter(x=>x.title&&x.link)
+  .filter(x=>x.title&&x.link);
+}
+function dedupeNews(items=[]){
+ const seen=new Set();
+ return items
   .sort((a,b)=>b.ts-a.ts)
   .filter(x=>{
-   const key=x.title.toLowerCase().replace(/\s+/g,' ').trim();
-   if(seen.has(key)) return false;
+   const key=x.title.toLowerCase().replace(/\s+/g,' ').replace(/[“”"'’]/g,'').trim();
+   if(!key||seen.has(key)) return false;
    seen.add(key);
    return true;
   })
-  .slice(0,60);
+  .slice(0,100);
 }
 function parseXFeed(xml,source){
  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
@@ -161,11 +179,13 @@ async function getSocialNews(){
  catch{return []}
 }
 async function getNews(){
- try{
-  const r=await fetch(FEED,{next:{revalidate:300},headers:{'User-Agent':'Mozilla/5.0'}});
-  if(!r.ok) throw new Error('feed');
+ const settled=await Promise.allSettled(FEEDS.map(async feed=>{
+  const r=await fetch(feed,{next:{revalidate:300},headers:{'User-Agent':'Mozilla/5.0'}});
+  if(!r.ok) throw new Error(`feed ${r.status}`);
   return parseNewsFeed(await r.text());
- }catch{return []}
+ }));
+ const merged=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
+ return dedupeNews(merged);
 }
 
 export default async function NewsPage({searchParams}){
@@ -179,12 +199,12 @@ export default async function NewsPage({searchParams}){
    <div className="top"><div className="brand"><i>JUMP</i> PRESS</div><div className="edition">JUVENTUS · NEWS LIVE</div></div>
    <small>NEWS</small>
    <h1>Juventus <em>news</em></h1>
-   <p className="lead">Radar dedicato a <b>Juventus</b>, con fonti web e social selezionate; per <b>Calcio e Finanza</b> vengono mostrati tutti gli aggiornamenti social, anche non Juventus.</p>
+   <p className="lead">Radar dedicato a <b>Juventus</b>, con fonti web e social selezionate. Il web incrocia più ricerche su Juventus, mercato, protagonisti e principali testate; per <b>Calcio e Finanza</b> vengono mostrati tutti gli aggiornamenti social, anche non Juventus.</p>
    <div className="newstabs">
     <a className={tab==='web'?'active':''} href="/news">WEB</a>
     <a className={tab==='social'?'active':''} href="/news?tab=social">SOCIAL</a>
    </div>
-   <div className="newsstatus"><span className="liveDot"/> Aggiornamento automatico · 20 min</div>
+   <div className="newsstatus"><span className="liveDot"/> Aggiornamento automatico · 5 min</div>
   </header>
 
   {tab==='web'?<section className="newslist">
@@ -207,6 +227,6 @@ export default async function NewsPage({searchParams}){
    </section>
   </>}
 
-  <footer><b>JUMP PRESS</b> · News Juventus · <span>refresh automatico ogni 20 minuti</span></footer>
+  <footer><b>JUMP PRESS</b> · News Juventus · <span>refresh automatico ogni 5 minuti</span></footer>
  </main>;
 }
