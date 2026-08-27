@@ -6,17 +6,19 @@ const TESTS=[
  ['rsshub-stsecurity','https://rsshub.stsecurity.moe/twitter/user/NicoSchira/exclude_replies'],
  ['rsshub-rssforever','https://rsshub.rssforever.com/twitter/user/NicoSchira/exclude_replies'],
  ['nitter-rss','https://nitter.kareem.one/NicoSchira/rss'],
- ['nitter-html','https://nitter.kareem.one/NicoSchira']
+ ['nitter-html','https://nitter.kareem.one/NicoSchira'],
+ ['jina-nitter','https://r.jina.ai/https://nitter.kareem.one/NicoSchira'],
+ ['jina-x','https://r.jina.ai/https://x.com/NicoSchira']
 ];
 
 async function probe(name,url){
  const c=new AbortController();
- const t=setTimeout(()=>c.abort(),5000);
+ const t=setTimeout(()=>c.abort(),8000);
  const started=Date.now();
  try{
-  const r=await fetch(url,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8'}});
+  const r=await fetch(url,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0','Accept':'text/plain,text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8'}});
   const text=await r.text();
-  return {name,status:r.status,ok:r.ok,ms:Date.now()-started,length:text.length,hasItem:/<item>/i.test(text),hasTimeline:/timeline-item/i.test(text),head:text.slice(0,120)};
+  return {name,status:r.status,ok:r.ok,ms:Date.now()-started,length:text.length,hasItem:/<item>/i.test(text),hasTimeline:/timeline-item/i.test(text),hasJuventus:/juventus|juve/i.test(text),head:text.slice(0,180)};
  }catch(e){return {name,ok:false,ms:Date.now()-started,error:String(e?.name||e)+': '+String(e?.message||'')}}
  finally{clearTimeout(t)}
 }
