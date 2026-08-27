@@ -1,46 +1,41 @@
-import {unstable_cache} from 'next/cache';
 import NewsRefresh from './NewsRefresh';
 
 export const dynamic='force-dynamic';
 
 const NEWS_QUERIES=[
  'Juventus',
- 'calciomercato Juventus',
+ 'Juventus calcio',
+ 'Juventus ultime notizie',
+ 'Juventus calciomercato',
  'mercato Juventus',
+ 'Juventus Spalletti',
+ 'Juventus Comolli',
+ 'Juventus Chiellini',
+ 'Juventus Yildiz',
  'Juventus Kessie',
  'Juventus Sorloth',
  'Juventus Zirkzee',
- 'Juventus Yildiz',
- 'Juventus Spalletti',
+ 'Juventus Mateta',
+ 'Juventus David',
  'Juventus Miretti',
- 'Juventus Gazzetta',
+ 'Juventus Bremer',
+ 'Juventus Koopmeiners',
+ 'Juventus Cambiaso',
+ 'Juventus Next Gen',
+ 'Juventus Women',
+ 'Juventus Primavera',
+ 'Juventus Gazzetta dello Sport',
  'Juventus Tuttosport',
  'Juventus Corriere dello Sport',
  'Juventus Sky Sport',
- 'Juventus Gianluca Di Marzio'
+ 'Juventus Sport Mediaset',
+ 'Juventus Tuttomercatoweb',
+ 'Juventus Gianluca Di Marzio',
+ 'Juventus Romeo Agresti',
+ 'Juventus Nicolò Schira',
+ 'Juventus Fabrizio Romano'
 ];
 const FEEDS=NEWS_QUERIES.map(q=>`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=it&gl=IT&ceid=IT:it`);
-const X_FEED_BASES=['https://rsshub.edwardcc.com','https://rsshub.stsecurity.moe'];
-const SOCIAL_MAX_AGE=3*24*60*60*1000;
-
-const SOCIAL_SOURCES=[
- {name:'Juventus',handle:'juventusfc',official:true},
- {name:'Gianluca Di Marzio',handle:'DiMarzio'},
- {name:'Fabrizio Romano',handle:'FabrizioRomano'},
- {name:'Nicolò Schira',handle:'NicoSchira'},
- {name:'Gianluigi Longari',handle:'Glongari'},
- {name:'Romeo Agresti',handle:'romeoagresti'},
- {name:'TUTTOmercatoWEB',handle:'TuttoMercatoWeb'},
- {name:'Cronache di Spogliatoio',handle:'CronacheTweet'},
- {name:'Corriere dello Sport',handle:'CorSport'},
- {name:'Sport Mediaset',handle:'sportmediaset'},
- {name:'Sky Sport',handle:'SkySport'},
- {name:'ilBiancoNero',handle:'ilbianconerocom'},
- {name:'Fanpage.it',handle:'fanpage'},
- {name:'Calcio Totale',handle:'calcio_morelli'},
- {name:'Calcio e Finanza',handle:'CalcioFinanza',allPosts:true},
- {name:'Paolo Ardoino',handle:'paoloardoino',ardoino:true}
-];
 
 function decodeXml(s=''){
  return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
@@ -52,175 +47,57 @@ function xmlText(block,tag){
  const m=block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,'i'));
  return m?decodeXml(m[1].trim()):'';
 }
-function cleanHtml(value=''){
- return decodeXml(value)
-  .replace(/<br\s*\/?\s*>/gi,' ')
-  .replace(/<[^>]+>/g,' ')
-  .replace(/https?:\/\/t\.co\/\S+/gi,'')
-  .replace(/\s+/g,' ')
-  .trim();
-}
-function relevantToJuve(body='',source={}){
- if(/\b(juventus|juve|bianconer\w*|allianz\s*stadium)\b/i.test(body)) return true;
- if(/\b(spalletti|yildiz|miretti|bremer|thuram|koopmeiners|cambiaso|vicario|di\s*gregorio|chiellini|comolli|kessi[eé]|sorloth|zirkzee|kolo\s*muani)\b/i.test(body)) return true;
- return Boolean(source.ardoino&&/\b(zebra|zebre|jay)\b/i.test(body));
-}
 function parseNewsFeed(xml){
- return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
-  .map(m=>{
-   const b=m[1];
-   const date=xmlText(b,'pubDate');
-   return {title:xmlText(b,'title'),link:xmlText(b,'link'),date,source:xmlText(b,'source'),ts:Date.parse(date)||0};
-  })
-  .filter(x=>x.title&&x.link);
+ return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m=>{
+  const b=m[1],date=xmlText(b,'pubDate');
+  return {title:xmlText(b,'title'),link:xmlText(b,'link'),date,source:xmlText(b,'source'),ts:Date.parse(date)||0};
+ }).filter(x=>x.title&&x.link);
+}
+function normalizeTitle(s=''){
+ return s.toLowerCase().replace(/\s+-\s+[^-]+$/,'').replace(/[“”"'’.,:;!?()[\]{}]/g,'').replace(/\s+/g,' ').trim();
 }
 function dedupeNews(items=[]){
  const seen=new Set();
- return items
-  .sort((a,b)=>b.ts-a.ts)
-  .filter(x=>{
-   const key=x.title.toLowerCase().replace(/\s+/g,' ').replace(/[“”"'’]/g,'').trim();
-   if(!key||seen.has(key)) return false;
-   seen.add(key);
-   return true;
-  })
-  .slice(0,100);
-}
-function parseXFeed(xml,source){
- return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
-  .map(m=>{
-   const b=m[1];
-   const date=xmlText(b,'pubDate')||xmlText(b,'dc:date');
-   const title=cleanHtml(xmlText(b,'title'));
-   const desc=cleanHtml(xmlText(b,'description'));
-   const encoded=cleanHtml(xmlText(b,'content:encoded'));
-   let body=[encoded,desc,title].sort((a,b)=>b.length-a.length)[0]||'';
-   body=body.replace(/^RT by @?[^:]+:\s*/i,'').replace(/^RT @?[^:]+:\s*/i,'').trim();
-   const rawLink=xmlText(b,'link')||xmlText(b,'guid');
-   const status=rawLink.match(/\/status\/(\d+)/)?.[1];
-   const link=status?`https://x.com/${source.handle}/status/${status}`:`https://x.com/${source.handle}`;
-   return {source:source.name,platform:'X',body,date,ts:Date.parse(date)||0,link};
-  })
-  .filter(p=>p.body&&(source.official||source.allPosts||relevantToJuve(p.body,source)));
+ return items.sort((a,b)=>b.ts-a.ts).filter(x=>{
+  const key=normalizeTitle(x.title);
+  if(!key||seen.has(key))return false;
+  seen.add(key);return true;
+ }).slice(0,150);
 }
 function formatDate(value){
- try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch{return ''}
-}
-async function fetchXXml(handle){
- let lastError=null;
- for(const base of X_FEED_BASES){
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),2500);
-  try{
-   const r=await fetch(`${base}/twitter/user/${handle}/exclude_replies`,{
-    cache:'no-store',signal:controller.signal,redirect:'follow',
-    headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}
-   });
-   if(!r.ok) throw new Error(`http ${r.status}`);
-   const xml=await r.text();
-   if(!/<item>/i.test(xml)) throw new Error('empty feed');
-   return xml;
-  }catch(e){lastError=e}
-  finally{clearTimeout(timer)}
- }
- throw lastError||new Error('feed unavailable');
-}
-const getCachedXXml=unstable_cache(
- async handle=>fetchXXml(handle),
- ['jump-press-x-feed-v9'],
- {revalidate:300}
-);
-async function getXForSource(source){
- try{
-  const xml=await getCachedXXml(source.handle);
-  const posts=parseXFeed(xml,source);
-  return source.allPosts?posts:posts.slice(0,12);
- }catch{return []}
-}
-function dedupePosts(posts=[]){
- const seen=new Set();
- return posts.sort((a,b)=>b.ts-a.ts).filter(p=>{
-  const key=p.body.toLowerCase().replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
-  if(!key||seen.has(key)) return false;
-  seen.add(key);
-  return true;
- });
-}
-async function buildSocialNews(){
- const settled=await Promise.allSettled(SOCIAL_SOURCES.map(getXForSource));
- const groups=settled.flatMap(result=>result.status==='fulfilled'?[result.value]:[]);
- const cutoff=Date.now()-SOCIAL_MAX_AGE;
- const counts=new Map();
- const posts=dedupePosts(groups.flat())
-  .filter(p=>p.ts>=cutoff)
-  .filter(p=>{
-   const max=p.source==='Calcio e Finanza'?Infinity:(p.source==='Juventus'?4:7);
-   const n=counts.get(p.source)||0;
-   if(n>=max) return false;
-   counts.set(p.source,n+1);
-   return true;
-  });
- if(!posts.length) throw new Error('social feed unavailable');
- return posts;
-}
-const getCachedSocialNews=unstable_cache(
- buildSocialNews,
- ['jump-press-social-snapshot-v9'],
- {revalidate:300}
-);
-async function getSocialNews(){
- try{return await getCachedSocialNews();}
- catch{return []}
+ try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}
+ catch{return ''}
 }
 async function getNews(){
  const settled=await Promise.allSettled(FEEDS.map(async feed=>{
-  const r=await fetch(feed,{next:{revalidate:300},headers:{'User-Agent':'Mozilla/5.0'}});
-  if(!r.ok) throw new Error(`feed ${r.status}`);
-  return parseNewsFeed(await r.text());
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),6000);
+  try{
+   const r=await fetch(feed,{cache:'no-store',signal:c.signal,headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}});
+   if(!r.ok)throw new Error(`feed ${r.status}`);
+   return parseNewsFeed(await r.text());
+  }finally{clearTimeout(t)}
  }));
- const merged=settled.flatMap(result=>result.status==='fulfilled'?result.value:[]);
- return dedupeNews(merged);
+ return dedupeNews(settled.flatMap(r=>r.status==='fulfilled'?r.value:[]));
 }
 
-export default async function NewsPage({searchParams}){
- const params=await searchParams;
- const tab=params?.tab==='social'?'social':'web';
- const news=tab==='web'?await getNews():[];
- const social=tab==='social'?await getSocialNews():[];
+export default async function NewsPage(){
+ const news=await getNews();
  return <main className="newspage">
   <NewsRefresh/>
   <header className="newsheader">
    <div className="top"><div className="brand"><i>JUMP</i> PRESS</div><div className="edition">JUVENTUS · NEWS LIVE</div></div>
    <small>NEWS</small>
    <h1>Juventus <em>news</em></h1>
-   <p className="lead">Radar dedicato a <b>Juventus</b>, con fonti web e social selezionate. Il web incrocia più ricerche su Juventus, mercato, protagonisti e principali testate; per <b>Calcio e Finanza</b> vengono mostrati tutti gli aggiornamenti social, anche non Juventus.</p>
-   <div className="newstabs">
-    <a className={tab==='web'?'active':''} href="/news">WEB</a>
-    <a className={tab==='social'?'active':''} href="/news?tab=social">SOCIAL</a>
-   </div>
-   <div className="newsstatus"><span className="liveDot"/> Aggiornamento automatico · 5 min</div>
+   <p className="lead">Radar dedicato alla <b>Juventus</b>: notizie web, mercato, prima squadra, dirigenza, Next Gen, Women e settore giovanile dalle principali fonti.</p>
+   <div className="newstabs"><a className="active" href="/news">WEB</a><a href="/social">SOCIAL</a></div>
+   <div className="newsstatus"><span className="liveDot"/> Aggiornamento automatico · 2 min</div>
   </header>
-
-  {tab==='web'?<section className="newslist">
+  <section className="newslist">
    {news.length?news.map((n,i)=><a className="newscard" href={n.link} target="_blank" rel="noreferrer" key={`${n.link}-${i}`}>
     <div className="newsmeta"><b>{n.source||'Notizia'}</b><span>{formatDate(n.date)}</span></div>
-    <h2>{n.title}</h2>
-    <span className="newsopen">Apri notizia ↗</span>
-   </a>):<div className="newsempty"><b>Nessuna notizia disponibile in questo momento.</b><span>Il feed verrà riprovato automaticamente.</span></div>}
-  </section>:<>
-   <section className="socialintro">
-    <b>Social Juventus · ultimi aggiornamenti</b>
-    <span>X: fonti selezionate e filtrate sulla Juventus; Calcio e Finanza è mostrato integralmente.</span>
-   </section>
-   <section className="socialfeed">
-    {social.length?social.map((p,i)=><a className="socialpost" href={p.link} target="_blank" rel="noreferrer" key={`${p.link}-${i}`}>
-     <div className="newsmeta"><b>{p.platform} · {p.source}</b><span>{formatDate(p.date)}</span></div>
-     <p className="socialtext">{p.body}</p>
-     <span className="newsopen">Apri su X ↗</span>
-    </a>):<div className="newsempty"><b>Feed social temporaneamente non raggiungibile.</b><span>Riprova con Aggiorna tra poco.</span></div>}
-   </section>
-  </>}
-
-  <footer><b>JUMP PRESS</b> · News Juventus · <span>refresh automatico ogni 5 minuti</span></footer>
+    <h2>{n.title}</h2><span className="newsopen">Apri notizia ↗</span>
+   </a>):<div className="newsempty"><b>Nessuna notizia disponibile in questo momento.</b><span>Premi Aggiorna: il feed viene interrogato senza cache.</span></div>}
+  </section>
+  <footer><b>JUMP PRESS</b> · News Juventus · <span>refresh automatico ogni 2 minuti</span></footer>
  </main>;
 }
