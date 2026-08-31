@@ -11,10 +11,16 @@ export default function SocialFeed({initialPosts=[]}){
  const [loading,setLoading]=useState(!seed.length);
  const [failed,setFailed]=useState(false);
  const mounted=useRef(true);
+ const busy=useRef(false);
+ const controllerRef=useRef(null);
  const refresh=useCallback(async()=>{
-  setLoading(true);setFailed(false);
+  if(busy.current)return;
+  busy.current=true;
+  setFailed(false);
+  if(!posts.length)setLoading(true);
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),18000);
+  controllerRef.current=controller;
+  const timeout=setTimeout(()=>controller.abort(),8000);
   try{
    const r=await fetch('/api/social-feed?fresh='+Date.now(),{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
    if(!r.ok)throw new Error(String(r.status));
@@ -22,30 +28,33 @@ export default function SocialFeed({initialPosts=[]}){
    if(!Array.isArray(data?.posts)||!data.posts.length)throw new Error('empty');
    const next=sortPosts(data.posts);
    if(!mounted.current)return;
-   setPosts(next);setFromCache(false);
+   setPosts(next);setFromCache(false);setFailed(false);
    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({savedAt:Date.now(),posts:next}));}catch{}
   }catch{
    if(mounted.current)setFailed(true);
   }finally{
    clearTimeout(timeout);
+   if(controllerRef.current===controller)controllerRef.current=null;
+   busy.current=false;
    if(mounted.current)setLoading(false);
   }
- },[]);
+ },[posts.length]);
  useEffect(()=>{
   mounted.current=true;
   if(!seed.length){
    try{const raw=localStorage.getItem(STORAGE_KEY);if(raw){const parsed=JSON.parse(raw);if(Array.isArray(parsed?.posts)&&parsed.posts.length)setPosts(sortPosts(parsed.posts));}}catch{}
   }
-  const first=setTimeout(refresh,seed.length?30000:0);
-  const id=setInterval(refresh,2*60*1000);
+  const id=setInterval(()=>{if(document.visibilityState==='visible')refresh()},2*60*1000);
   const manual=()=>refresh();
+  const visible=()=>{if(document.visibilityState==='visible')refresh()};
   window.addEventListener('jump-social-refresh',manual);
-  return()=>{mounted.current=false;clearTimeout(first);clearInterval(id);window.removeEventListener('jump-social-refresh',manual)};
+  document.addEventListener('visibilitychange',visible);
+  return()=>{mounted.current=false;clearInterval(id);controllerRef.current?.abort();window.removeEventListener('jump-social-refresh',manual);document.removeEventListener('visibilitychange',visible)};
  },[refresh,seed.length]);
  const latest=useMemo(()=>posts?.[0]?.date||null,[posts]);
  if(!posts.length)return <div className="empty"><b>{loading?'Caricamento social…':'Social temporaneamente non raggiungibili.'}</b><p>{loading?'Sto recuperando gli ultimi post dalle fonti selezionate.':'Riprovo automaticamente senza cancellare gli ultimi risultati validi.'}</p></div>;
  return <>
-  <div className="feedstatus">● {fromCache?'Ultimi social disponibili':'Aggiornato'}{latest?` · ${formatDate(latest)}`:''}{loading?' · aggiornamento in corso':''}{failed&&!loading?' · ultimo tentativo non riuscito':''}</div>
+  <div className="feedstatus">● {fromCache?'Ultimi social disponibili':'Aggiornato'}{latest?` · ${formatDate(latest)}`:''}{failed?' · rete social momentaneamente lenta':''}</div>
   {posts.map((p,i)=><a className="post" href={p.link} target="_blank" rel="noreferrer" key={`${p.link}-${i}`}><div className="meta"><b>X · {p.source}</b><span>{formatDate(p.date)||'Data e ora non disponibili'}</span></div><p>{p.body}</p><strong>Apri su X ↗</strong></a>)}
  </>;
 }
