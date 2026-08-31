@@ -4,6 +4,7 @@ import {useEffect,useMemo,useState,useCallback,useRef} from 'react';
 const STORAGE_KEY='jump_press_juve_social_last_good_v1';
 function formatDate(value){try{return new Intl.DateTimeFormat('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value)).replace(',',' ·');}catch{return ''}}
 function sortPosts(items=[]){return [...items].sort((a,b)=>(b.ts||Date.parse(b.date)||0)-(a.ts||Date.parse(a.date)||0));}
+function mergePosts(...groups){const seen=new Set();return sortPosts(groups.flat().filter(Boolean)).filter(p=>{const k=p.link||`${p.source}-${p.body}`;if(!k||seen.has(k))return false;seen.add(k);return true;});}
 function cleanBody(value=''){
  return String(value)
   .replace(/https?:\/\/(?:www\.)?(?:nitter\.cf|xcancel\.com)(?::\d+)?\/t\.co\/\S+/gi,'')
@@ -30,11 +31,15 @@ export default function SocialFeed({initialPosts=[]}){
   controllerRef.current=controller;
   const timeout=setTimeout(()=>controller.abort(),25000);
   try{
-   const r=await fetch('/api/social-feed?fresh='+Date.now(),{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
-   if(!r.ok)throw new Error(String(r.status));
-   const data=await r.json();
-   if(!Array.isArray(data?.posts)||!data.posts.length)throw new Error('empty');
-   const next=sortPosts(data.posts);
+   const stamp=Date.now();
+   const [mainRes,searchRes]=await Promise.allSettled([
+    fetch('/api/social-feed?fresh='+stamp,{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}}).then(async r=>{if(!r.ok)throw new Error(String(r.status));return r.json()}),
+    fetch('/api/social-search?fresh='+stamp,{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}}).then(async r=>{if(!r.ok)throw new Error(String(r.status));return r.json()})
+   ]);
+   const main=mainRes.status==='fulfilled'&&Array.isArray(mainRes.value?.posts)?mainRes.value.posts:[];
+   const extra=searchRes.status==='fulfilled'&&Array.isArray(searchRes.value?.posts)?searchRes.value.posts:[];
+   const next=mergePosts(main,extra);
+   if(!next.length)throw new Error('empty');
    if(!mounted.current)return;
    setPosts(next);setFromCache(false);setFailed(false);
    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({savedAt:Date.now(),posts:next}));}catch{}
@@ -53,7 +58,7 @@ export default function SocialFeed({initialPosts=[]}){
    try{const raw=localStorage.getItem(STORAGE_KEY);if(raw){const parsed=JSON.parse(raw);if(Array.isArray(parsed?.posts)&&parsed.posts.length)setPosts(sortPosts(parsed.posts));}}catch{}
   }
   const first=setTimeout(()=>{if(document.visibilityState==='visible')refresh()},300);
-  const id=setInterval(()=>{if(document.visibilityState==='visible')refresh()},2*60*1000);
+  const id=setInterval(()=>{if(document.visibilityState==='visible')refresh()},60*1000);
   const manual=()=>refresh();
   const visible=()=>{if(document.visibilityState==='visible')refresh()};
   window.addEventListener('jump-social-refresh',manual);
