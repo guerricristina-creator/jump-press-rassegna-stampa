@@ -27,33 +27,35 @@ function relevant(body='',s={}){if(JUVE_TERMS.test(body))return true;return Bool
 function parseXFeed(xml,s){return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].map(m=>{const b=m[1],date=xmlText(b,'pubDate')||xmlText(b,'dc:date'),title=cleanHtml(xmlText(b,'title')),desc=cleanHtml(xmlText(b,'description')),enc=cleanHtml(xmlText(b,'content:encoded'));let body=[enc,desc,title].sort((a,b)=>b.length-a.length)[0]||'';body=body.replace(/^RT by @?[^:]+:\s*/i,'').replace(/^RT @?[^:]+:\s*/i,'').trim();const raw=xmlText(b,'link')||xmlText(b,'guid'),status=raw.match(/\/status\/(\d+)/)?.[1];return {source:s.name,body,date,ts:Date.parse(date)||0,link:status?`https://x.com/${s.handle}/status/${status}`:`https://x.com/${s.handle}`};}).filter(p=>p.body&&(s.official||relevant(p.body,s)));}
 async function fetchBase(base,handle){const c=new AbortController(),t=setTimeout(()=>c.abort(),3000);try{const r=await fetch(`${base}/twitter/user/${handle}/exclude_replies`,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5'}});if(!r.ok)throw new Error(String(r.status));const xml=await r.text();if(!/<item>/i.test(xml))throw new Error('empty');return xml;}finally{clearTimeout(t)}}
 async function fetchRss(handle){
- let lastError;
- for(const base of X_FEED_BASES){
-  try{return await fetchBase(base,handle)}
-  catch(e){lastError=e}
- }
- throw lastError||new Error('rss_unavailable')
+ try{return await Promise.any(X_FEED_BASES.map(base=>fetchBase(base,handle)))}
+ catch{throw new Error('rss_unavailable')}
 }
 function cleanMarkdown(s=''){return s.replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g,' ').replace(/!\[[^\]]*\]\([^)]*\)/g,' ').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\\([#_*`])/g,'$1').replace(/## Log in or sign up for X[\s\S]*$/i,'').replace(/## See .*?full profile[\s\S]*$/i,'').replace(/\s+/g,' ').trim();}
 function relativeDate(label=''){const now=Date.now();let m=label.match(/^(\d+)\s*(?:sec|secs|second|seconds|s|min|mins|minute|minutes|m|hour|hours|hr|hrs|h|day|days|d)(?:\s+ago)?$/i);if(m){const unit=label.toLowerCase();const mult=/sec|second|\bs\b/.test(unit)?1000:/min|minute|\bm\b/.test(unit)?60000:/hour|hr|\bh\b/.test(unit)?3600000:86400000;return new Date(now-Number(m[1])*mult)}m=label.match(/^(\d+)(s|m|h|d)$/i);if(m){const mult={s:1000,m:60000,h:3600000,d:86400000}[m[2].toLowerCase()];return new Date(now-Number(m[1])*mult)}m=label.match(/^([A-Z][a-z]{2})\s+(\d{1,2})(?:,\s*(\d{4}))?$/);if(m){const y=m[3]?Number(m[3]):new Date().getUTCFullYear();return new Date(`${m[1]} ${m[2]}, ${y} 12:00:00 UTC`)}return new Date(0)}
 function parseJina(text,s){const out=[];const matches=[...text.matchAll(new RegExp(`\\[([^\\]]+)\\]\\(https:\\/\\/x\\.com\\/${s.handle}\\/status\\/(\\d+)\\)`,'gi'))];for(let i=0;i<matches.length;i++){const hit=matches[i],start=(hit.index||0)+hit[0].length,end=i+1<matches.length?(matches[i+1].index||text.length):text.length;const body=cleanMarkdown(text.slice(start,end)).slice(0,1800),d=relativeDate(hit[1].trim()),ts=d.getTime();if(!body||!ts||!(s.official||relevant(body,s)))continue;out.push({source:s.name,body,date:d.toISOString(),ts,link:`https://x.com/${s.handle}/status/${hit[2]}`});}return out;}
-async function fetchJina(handle){const c=new AbortController(),t=setTimeout(()=>c.abort(),6000);try{const r=await fetch(`https://r.jina.ai/https://x.com/${handle}`,{cache:'no-store',signal:c.signal,headers:{Accept:'text/plain','User-Agent':'Mozilla/5.0'}});if(!r.ok)throw new Error(String(r.status));return await r.text();}finally{clearTimeout(t)}}
+async function fetchJina(handle){const c=new AbortController(),t=setTimeout(()=>c.abort(),5500);try{const r=await fetch(`https://r.jina.ai/https://x.com/${handle}`,{cache:'no-store',signal:c.signal,headers:{Accept:'text/plain','User-Agent':'Mozilla/5.0'}});if(!r.ok)throw new Error(String(r.status));return await r.text();}finally{clearTimeout(t)}}
 async function fetchBingX(s){const q=`site:x.com/${s.handle} (Juventus OR Juve OR bianconeri OR Continassa)`;const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);try{const r=await fetch(`https://www.bing.com/search?format=rss&setlang=it-IT&cc=IT&q=${encodeURIComponent(q)}`,{cache:'no-store',signal:c.signal,headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml,text/xml;q=0.9,*/*;q=0.5'}});if(!r.ok)throw new Error(String(r.status));const xml=await r.text(),out=[];for(const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)){const b=m[1],title=cleanHtml(xmlText(b,'title')),desc=cleanHtml(xmlText(b,'description')),link=xmlText(b,'link'),body=[title,desc].filter(Boolean).join(' — ');if(!body||!(s.official||relevant(body,s)))continue;const status=link.match(/(?:x|twitter)\.com\/[^/]+\/status\/(\d+)/i)?.[1],date=xmlText(b,'pubDate')||xmlText(b,'date'),ts=Date.parse(date)||0;if(!status||!ts)continue;out.push({source:s.name,body,date,ts,link:`https://x.com/${s.handle}/status/${status}`});}return out;}finally{clearTimeout(t)}}
 async function fetchSotweSearch(term){const c=new AbortController(),t=setTimeout(()=>c.abort(),3200);try{const r=await fetch(`https://r.jina.ai/https://www.sotwe.com/search/${encodeURIComponent(term)}`,{cache:'no-store',signal:c.signal,headers:{Accept:'text/plain','User-Agent':'Mozilla/5.0'}});if(!r.ok)throw new Error(String(r.status));return await r.text();}finally{clearTimeout(t)}}
 function parseSotwe(text){const out=[];const chunks=text.split(/\n(?=##?\s+)/g);for(const chunk of chunks){const who=chunk.match(/([^\n@]{2,60})\s+@([A-Za-z0-9_]{2,30})/);const ago=chunk.match(/about\s+(\d+)\s+(minute|minutes|hour|hours|day|days)\s+ago/i);if(!who||!ago)continue;const body=cleanMarkdown(chunk.replace(/^.*?about\s+\d+\s+(?:minute|minutes|hour|hours|day|days)\s+ago/i,'')).replace(/^[-*#\s]+/,'').trim();if(!body||!relevant(body,{}))continue;const d=relativeDate(`${ago[1]} ${ago[2]} ago`),ts=d.getTime();const status=chunk.match(/https?:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]+\/status\/(\d+)/i)?.[1];out.push({source:who[1].trim().replace(/^#+\s*/,''),body,date:d.toISOString(),ts,link:status?`https://x.com/${who[2]}/status/${status}`:`https://x.com/${who[2]}`});}return out;}
-const rssCache=unstable_cache(async h=>fetchRss(h),['social-api-rss-v6'],{revalidate:900});
-const jinaCache=unstable_cache(async h=>fetchJina(h),['social-api-jina-v6'],{revalidate:900});
+const rssCache=unstable_cache(async h=>fetchRss(h),['social-api-rss-v7'],{revalidate:300});
+const jinaCache=unstable_cache(async h=>fetchJina(h),['social-api-jina-v7'],{revalidate:300});
 async function one(s){
- const out=[];
- try{out.push(...parseXFeed(await rssCache(s.handle),s))}catch{}
- if(!out.length)try{out.push(...parseJina(await jinaCache(s.handle),s))}catch{}
- if(!out.length)try{out.push(...await fetchBingX(s))}catch{}
- return dedupe(out).slice(0,s.official?25:15)
+ const [rss,jina,bing]=await Promise.allSettled([
+  rssCache(s.handle).then(xml=>parseXFeed(xml,s)),
+  jinaCache(s.handle).then(text=>parseJina(text,s)),
+  fetchBingX(s)
+ ]);
+ const all=[rss,jina,bing].flatMap(r=>r.status==='fulfilled'?r.value:[]);
+ return dedupe(all).slice(0,s.official?25:15)
 }
 function dedupe(a){const seen=new Set();return a.sort((x,y)=>y.ts-x.ts).filter(p=>{const k=p.link||p.body.toLowerCase().replace(/\s+/g,' ').trim();if(!k||seen.has(k))return false;seen.add(k);return true})}
-async function build(){const profilePromise=Promise.allSettled(SOURCES.map(one));const searchPromise=Promise.allSettled(SEARCH_TERMS.map(async q=>parseSotwe(await fetchSotweSearch(q))));const [profiles,searches]=await Promise.all([profilePromise,searchPromise]);const all=[...profiles.flatMap(r=>r.status==='fulfilled'?r.value:[]),...searches.flatMap(r=>r.status==='fulfilled'?r.value:[])];const cutoff=Date.now()-SOCIAL_MAX_AGE,counts=new Map();return dedupe(all).filter(p=>p.ts>=cutoff).filter(p=>{const max=p.source==='Juventus'?20:18,n=counts.get(p.source)||0;if(n>=max)return false;counts.set(p.source,n+1);return true}).slice(0,220)}
-const cachedBuild=unstable_cache(build,['social-feed-build-v6'],{revalidate:600});
+async function build(){const profilePromise=Promise.allSettled(SOURCES.map(one));const searchPromise=Promise.allSettled(SEARCH_TERMS.map(async q=>parseSotwe(await fetchSotweSearch(q))));const [profiles,searches]=await Promise.all([profilePromise,searchPromise]);const all=[...profiles.flatMap(r=>r.status==='fulfilled'?r.value:[]),...searches.flatMap(r=>r.status==='fulfilled'?r.value:[])];const cutoff=Date.now()-SOCIAL_MAX_AGE,counts=new Map();const posts=dedupe(all).filter(p=>p.ts>=cutoff).filter(p=>{const max=p.source==='Juventus'?20:18,n=counts.get(p.source)||0;if(n>=max)return false;counts.set(p.source,n+1);return true}).slice(0,220);if(!posts.length)throw new Error('social_sources_unavailable');return posts}
+const cachedBuild=unstable_cache(build,['social-feed-build-v7'],{revalidate:120});
 export async function GET(){
- const posts=await cachedBuild();
- return NextResponse.json({posts,generatedAt:new Date().toISOString(),monitored:MONITORED_NAMES.length},{headers:{'Cache-Control':'public, s-maxage=600, stale-while-revalidate=1800'}})
+ try{
+  const posts=await cachedBuild();
+  return NextResponse.json({posts,generatedAt:new Date().toISOString(),monitored:MONITORED_NAMES.length},{headers:{'Cache-Control':'public, s-maxage=120, stale-while-revalidate=900'}})
+ }catch{
+  return NextResponse.json({posts:[],generatedAt:new Date().toISOString(),monitored:MONITORED_NAMES.length,degraded:true},{headers:{'Cache-Control':'no-store'}})
+ }
 }
