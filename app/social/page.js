@@ -3,14 +3,17 @@ import SocialFeed from './SocialFeed';
 export const dynamic='force-dynamic';
 
 async function getInitialPosts(){
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),8000);
  try{
   const host=process.env.VERCEL_PROJECT_PRODUCTION_URL||process.env.VERCEL_URL;
   if(!host)return [];
-  const r=await fetch(`https://${host}/api/social-feed?render=1`,{cache:'no-store',headers:{Accept:'application/json'}});
+  const r=await fetch(`https://${host}/api/social-feed?render=1`,{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
   if(!r.ok)return [];
   const data=await r.json();
   return Array.isArray(data?.posts)?data.posts:[];
  }catch{return []}
+ finally{clearTimeout(timeout)}
 }
 
 export default async function SocialPage(){const initialPosts=await getInitialPosts();return <main className="socialPage"><header><div className="brandrow"><b>JUMP PRESS</b><a href="/news">← Indietro</a></div><small>NEWS</small><h1>Juventus <span>social</span></h1><p>Aggiornamenti X da fonti selezionate, filtrati sulla Juventus.</p><div className="tabs"><a href="/news">WEB</a><b>SOCIAL</b></div></header><section><SocialFeed initialPosts={initialPosts}/></section><style>{`.socialPage{max-width:980px;margin:0 auto;padding:54px 24px 45px;font-family:Arial,Helvetica,sans-serif;color:#f4f4f4}.socialPage header{padding-bottom:18px}.brandrow{display:flex;justify-content:space-between;align-items:center;margin-bottom:40px}.brandrow>b{font-size:20px;letter-spacing:2px}.brandrow a,.tabs a{color:#fff;text-decoration:none;border:1px solid #555;border-radius:999px;padding:11px 18px;font-weight:800}.socialPage small{color:#dfff2f;letter-spacing:2px;font-weight:900}.socialPage h1{font-size:64px;line-height:.95;margin:18px 0 24px;letter-spacing:-2.5px}.socialPage h1 span{color:#d6d6d6}.socialPage header>p{font-size:18px;line-height:1.55;color:#ddd;max-width:650px}.tabs{display:flex;gap:12px;margin-top:25px}.tabs a,.tabs b{padding:12px 28px}.tabs b{background:#dfff2f;color:#111;border-radius:999px}.socialPage section{background:#11161a;border:1px solid #2d3338;border-radius:24px;padding:16px;margin-top:26px}.feedstatus{display:inline-block;margin:0 0 14px;padding:9px 12px;border:1px solid #384047;border-radius:999px;color:#cfd2d3;font-size:12.5px}.post{display:block;padding:20px;margin-bottom:12px;background:#171c20;border:1px solid #343a40;border-radius:18px;color:#f5f5f5;text-decoration:none}.post:last-child{margin-bottom:0}.meta{display:flex;justify-content:space-between;gap:14px;font-size:13px;color:#aeb3b7}.meta b{color:#fff}.post p{font-size:16px;line-height:1.48;margin:13px 0}.post strong{font-size:13px;color:#dfff2f}.empty{padding:26px;background:#171c20;border:1px solid #343a40;border-radius:18px}.empty b{font-size:22px}.empty p{color:#b8bdc1;line-height:1.5}@media(max-width:600px){.socialPage{padding:42px 18px 32px}.brandrow{margin-bottom:32px}.socialPage h1{font-size:52px;letter-spacing:-2px}.socialPage header>p{font-size:17px}.socialPage section{margin-left:-4px;margin-right:-4px;padding:10px;border-radius:20px}.post{padding:17px 16px;border-radius:16px}.post p{font-size:15.5px}.meta{font-size:12.5px}.tabs a,.tabs b{padding:11px 24px}}`}</style></main>}
