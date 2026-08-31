@@ -52,11 +52,14 @@ export default function SocialFeed({initialPosts=[]}){
    ]);
    const main=mainRes.status==='fulfilled'&&Array.isArray(mainRes.value?.posts)?mainRes.value.posts:[];
    const extra=searchRes.status==='fulfilled'&&Array.isArray(searchRes.value?.posts)?searchRes.value.posts:[];
-   const next=mergePosts(main,extra);
-   if(!next.length)throw new Error('empty');
    if(!mounted.current)return;
-   setPosts(next);setFromCache(false);setFailed(false);
-   try{localStorage.setItem(STORAGE_KEY,JSON.stringify({savedAt:Date.now(),posts:next}));}catch{}
+   setPosts(current=>{
+    const next=mergePosts(current,main,extra).slice(0,300);
+    if(!next.length)return current;
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({savedAt:Date.now(),posts:next}));}catch{}
+    return next;
+   });
+   setFromCache(false);setFailed(false);
   }catch{
    if(mounted.current)setFailed(true);
   }finally{
