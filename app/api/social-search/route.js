@@ -12,7 +12,8 @@ const SOURCES={
  glongari:'Gianluigi Longari',cronachetweet:'Cronache di Spogliatoio',calciofinanza:'Calcio e Finanza',
  mattemoretto:'Matteo Moretto',fbians:'Fabrizio Biasin',fbiasin:'Fabrizio Biasin',marcoconterio:'Marco Conterio',
  '86_longo':'Daniele Longo',nicolabalice:'Nicola Balice',filippocornacchia:'Filippo Cornacchia',fabdellavalle:'Fabiana Della Valle',
- tuttosport:'Tuttosport',juventusnews24:'JuventusNews24',tuttojuve:'TuttoJuve',ilbianconerocom:'IlBianconero'
+ tuttosport:'Tuttosport',juventusnews24:'JuventusNews24',tuttojuve:'TuttoJuve',ilbianconerocom:'IlBianconero',
+ ocwsport:'OCW Sport',mcriscitiello:'Michele Criscitiello'
 };
 const HANDLES=[...new Set(Object.keys(SOURCES))];
 const RELEVANT=/(?:\bjuventus\b|\bjuve\b|\bbianconer\w*\b|\bcontinassa\b|@juventusfc\b|\bvecchia signora\b)/i;
@@ -46,8 +47,7 @@ export async function GET(){
   const officialPromise=fetchOfficialX();
   const discoveryJobs=[];
   for(const h of HANDLES){discoveryJobs.push(discoverBing(h),discoverDdg(h));}
-  // Google/Jina is slower: use it on the highest-value accounts only.
-  for(const h of ['skysport','tuttosport','gazzetta_it','corsport','dimarzio','fabrizioromano','nicoschira','romeoagresti','giovaalbanese','alfredopedulla','tuttomercatoweb','cmdotcom','glongari']) discoveryJobs.push(discoverGoogleViaJina(h));
+  for(const h of ['skysport','tuttosport','gazzetta_it','corsport','dimarzio','fabrizioromano','nicoschira','romeoagresti','giovaalbanese','alfredopedulla','tuttomercatoweb','cmdotcom','glongari','ocwsport','mcriscitiello']) discoveryJobs.push(discoverGoogleViaJina(h));
   const discoveredSettled=await Promise.allSettled(discoveryJobs);
   const discovered=dedupeCandidates(discoveredSettled.flatMap(r=>r.status==='fulfilled'?r.value:[])).slice(0,90);
 
