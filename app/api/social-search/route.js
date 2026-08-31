@@ -2,8 +2,8 @@ import {NextResponse} from 'next/server';
 
 export const dynamic='force-dynamic';
 
-const MAX_AGE=36*60*60*1000;
-const NITTER_BASES=['https://nitter.cf','https://xcancel.com'];
+const MAX_AGE=48*60*60*1000;
+const X_EPOCH=1288834974657n;
 const SOURCES={
  juventusfc:'Juventus',tuttosport:'Tuttosport',gazzetta_it:'La Gazzetta dello Sport',corsport:'Corriere dello Sport',
  skysport:'Sky Sport',sportmediaset:'Sport Mediaset',dimarzio:'Gianluca Di Marzio',fabrizioromano:'Fabrizio Romano',
@@ -11,18 +11,58 @@ const SOURCES={
  cmdotcom:'Calciomercato.com',tuttomercatoweb:'Tuttomercatoweb',goalitalia:'Goal Italia',footballitalia:'Football Italia',
  glongari:'Gianluigi Longari',cronachetweet:'Cronache di Spogliatoio',calciofinanza:'Calcio e Finanza',
  mattemoretto:'Matteo Moretto',fbians:'Fabrizio Biasin',fbiasin:'Fabrizio Biasin',marcoconterio:'Marco Conterio',
- '86_longo':'Daniele Longo',nicolabalice:'Nicola Balice',filippocornacchia:'Filippo Cornacchia',fabdellavalle:'Fabiana Della Valle'
+ '86_longo':'Daniele Longo',nicolabalice:'Nicola Balice',filippocornacchia:'Filippo Cornacchia',fabdellavalle:'Fabiana Della Valle',
+ tuttosport:'Tuttosport',juventusnews24:'JuventusNews24',tuttojuve:'TuttoJuve',ilbianconerocom:'IlBianconero'
 };
-const HANDLES=Object.keys(SOURCES);
-const JUVE='(Juventus OR Juve OR bianconeri OR Continassa)';
+const HANDLES=[...new Set(Object.keys(SOURCES))];
+const RELEVANT=/(?:\bjuventus\b|\bjuve\b|\bbianconer\w*\b|\bcontinassa\b|@juventusfc\b|\bvecchia signora\b)/i;
 
-function decodeXml(s=''){return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(Number(n)));}
-function xmlText(block,tag){const m=block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,'i'));return m?decodeXml(m[1].trim()):'';}
-function clean(v=''){return decodeXml(v).replace(/<br\s*\/?\s*>/gi,' ').replace(/<[^>]+>/g,' ').replace(/https?:\/\/(?:www\.)?(?:nitter\.cf|xcancel\.com)(?::\d+)?\/t\.co\/\S+/gi,'').replace(/https?:\/\/t\.co\/\S+/gi,'').replace(/\s+/g,' ').trim();}
-function relevant(body=''){return /(?:\bjuventus\b|\bjuve\b|\bbianconer\w*\b|\bcontinassa\b|@juventusfc\b)/i.test(body)}
-function parse(xml){const out=[];for(const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)){const b=m[1],raw=xmlText(b,'link')||xmlText(b,'guid');const hit=raw.match(/(?:x|twitter)\.com\/([A-Za-z0-9_]+)\/status\/(\d+)/i)||raw.match(/\/([A-Za-z0-9_]+)\/status\/(\d+)/i);if(!hit)continue;const handle=hit[1].toLowerCase(),source=SOURCES[handle];if(!source)continue;const date=xmlText(b,'pubDate')||xmlText(b,'dc:date'),ts=Date.parse(date)||0;if(!ts||Date.now()-ts>MAX_AGE)continue;const title=clean(xmlText(b,'title')),desc=clean(xmlText(b,'description')),body=[desc,title].sort((a,b)=>b.length-a.length)[0]||'';if(!body||!(handle==='juventusfc'||relevant(body)))continue;out.push({source,body,date,ts,link:`https://x.com/${hit[1]}/status/${hit[2]}`});}return out;}
-async function fetchOfficialX(){const token=process.env.X_BEARER_TOKEN||process.env.TWITTER_BEARER_TOKEN;if(!token)return [];const groups=[];for(let i=0;i<HANDLES.length;i+=8)groups.push(HANDLES.slice(i,i+8));const jobs=groups.map(async g=>{const authors=g.map(h=>`from:${h}`).join(' OR '),q=`${JUVE} (${authors}) -is:retweet`;const url='https://api.x.com/2/tweets/search/recent?max_results=100&tweet.fields=created_at,author_id&expansions=author_id&user.fields=username&query='+encodeURIComponent(q);const c=new AbortController(),t=setTimeout(()=>c.abort(),9000);try{const r=await fetch(url,{cache:'no-store',signal:c.signal,headers:{Authorization:`Bearer ${token}`,Accept:'application/json'}});if(!r.ok)throw new Error('x_'+r.status);const data=await r.json(),users=new Map((data.includes?.users||[]).map(u=>[u.id,u]));return (data.data||[]).map(tweet=>{const u=users.get(tweet.author_id);if(!u)return null;const handle=String(u.username||'').toLowerCase(),source=SOURCES[handle],body=clean(tweet.text||''),date=tweet.created_at,ts=Date.parse(date)||0;if(!source||!body||!ts||Date.now()-ts>MAX_AGE)return null;return {source,body,date,ts,link:`https://x.com/${u.username}/status/${tweet.id}`};}).filter(Boolean);}finally{clearTimeout(t)}});const settled=await Promise.allSettled(jobs);return settled.flatMap(r=>r.status==='fulfilled'?r.value:[])}
-async function fetchNitter(base,q){const c=new AbortController(),t=setTimeout(()=>c.abort(),4500);try{const r=await fetch(`${base}/search/rss?f=tweets&q=${encodeURIComponent(q)}`,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.5'}});if(!r.ok)throw new Error(String(r.status));const xml=await r.text();if(!/<item>/i.test(xml))throw new Error('empty');return parse(xml);}finally{clearTimeout(t)}}
-async function fetchBing(q){const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);try{const r=await fetch(`https://www.bing.com/search?format=rss&setlang=it-IT&cc=IT&q=${encodeURIComponent(q)}`,{cache:'no-store',signal:c.signal,headers:{'User-Agent':'Mozilla/5.0','Accept':'application/rss+xml,text/xml;q=0.9,*/*;q=0.5'}});if(!r.ok)throw new Error(String(r.status));return parse(await r.text());}finally{clearTimeout(t)}}
-function dedupe(a){const seen=new Set();return a.sort((x,y)=>y.ts-x.ts).filter(p=>{if(seen.has(p.link))return false;seen.add(p.link);return true})}
-export async function GET(){try{const jobs=[fetchOfficialX()];for(const base of NITTER_BASES){jobs.push(fetchNitter(base,'Juventus'));jobs.push(fetchNitter(base,'Juve'));}for(const h of HANDLES)jobs.push(fetchBing(`site:x.com/${h}/status ${JUVE}`));const settled=await Promise.allSettled(jobs);const posts=dedupe(settled.flatMap(r=>r.status==='fulfilled'?r.value:[])).slice(0,300);const sources=[...new Set(posts.map(p=>p.source))];return NextResponse.json({posts,generatedAt:new Date().toISOString(),officialX:Boolean(process.env.X_BEARER_TOKEN||process.env.TWITTER_BEARER_TOKEN),sourceCount:sources.length},{headers:{'Cache-Control':'public, s-maxage=45, stale-while-revalidate=120'}})}catch{return NextResponse.json({posts:[],degraded:true},{headers:{'Cache-Control':'no-store'}})}}
+function cleanText(v=''){return String(v).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/<br\s*\/?\s*>/gi,' ').replace(/<[^>]+>/g,' ').replace(/https?:\/\/t\.co\/\S+/gi,'').replace(/\s+/g,' ').trim();}
+function tweetTs(id){try{return Number((BigInt(id)>>22n)+X_EPOCH);}catch{return 0}}
+function makeCandidate(handle,id){const h=handle.toLowerCase();const source=SOURCES[h];if(!source)return null;const ts=tweetTs(id);if(!ts||Date.now()-ts>MAX_AGE||ts>Date.now()+60000)return null;return {handle:h,id,source,ts,date:new Date(ts).toISOString(),link:`https://x.com/${handle}/status/${id}`};}
+function extractCandidates(text=''){const out=[];const rx=/(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]+)\/status\/(\d{15,22})/gi;for(const m of text.matchAll(rx)){const c=makeCandidate(m[1],m[2]);if(c)out.push(c)}return out}
+function dedupeCandidates(items){const seen=new Set();return items.sort((a,b)=>b.ts-a.ts).filter(x=>{if(seen.has(x.link))return false;seen.add(x.link);return true})}
+
+async function fetchText(url,timeout=5000,headers={}){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-store',signal:c.signal,redirect:'follow',headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.5',...headers}});if(!r.ok)throw new Error(String(r.status));return await r.text()}finally{clearTimeout(t)}}
+
+async function discoverBing(handle){const q=`site:x.com/${handle}/status (Juventus OR Juve OR bianconeri OR Continassa)`;try{return extractCandidates(await fetchText(`https://www.bing.com/search?format=rss&setlang=it-IT&cc=IT&q=${encodeURIComponent(q)}`,5500,{'Accept':'application/rss+xml,text/xml;q=0.9,*/*;q=0.5'}))}catch{return []}}
+async function discoverDdg(handle){const q=`site:x.com/${handle}/status Juventus Juve`;try{return extractCandidates(await fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,5500))}catch{return []}}
+async function discoverGoogleViaJina(handle){const q=`site:x.com/${handle}/status Juventus OR Juve`;try{return extractCandidates(await fetchText(`https://r.jina.ai/https://www.google.com/search?q=${encodeURIComponent(q)}`,6500,{'Accept':'text/plain'}))}catch{return []}}
+
+async function fetchOembed(c){const urls=[
+ `https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(c.link)}`,
+ `https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(c.link.replace('x.com','twitter.com'))}`
+];
+ for(const u of urls){try{const txt=await fetchText(u,4500,{'Accept':'application/json'});const data=JSON.parse(txt);const body=cleanText(data?.html||'');if(body)return {...c,body}}catch{}}
+ return null;
+}
+
+async function fetchOfficialX(){const token=process.env.X_BEARER_TOKEN||process.env.TWITTER_BEARER_TOKEN;if(!token)return [];const groups=[];for(let i=0;i<HANDLES.length;i+=8)groups.push(HANDLES.slice(i,i+8));const jobs=groups.map(async g=>{const authors=g.map(h=>`from:${h}`).join(' OR '),q=`(Juventus OR Juve OR bianconeri OR Continassa) (${authors}) -is:retweet`;const url='https://api.x.com/2/tweets/search/recent?max_results=100&tweet.fields=created_at,author_id&expansions=author_id&user.fields=username&query='+encodeURIComponent(q);const c=new AbortController(),t=setTimeout(()=>c.abort(),8000);try{const r=await fetch(url,{cache:'no-store',signal:c.signal,headers:{Authorization:`Bearer ${token}`,Accept:'application/json'}});if(!r.ok)return [];const data=await r.json(),users=new Map((data.includes?.users||[]).map(u=>[u.id,u]));return (data.data||[]).map(tweet=>{const u=users.get(tweet.author_id);if(!u)return null;const handle=String(u.username||'').toLowerCase(),source=SOURCES[handle],body=cleanText(tweet.text||''),date=tweet.created_at,ts=Date.parse(date)||0;if(!source||!body||!ts||Date.now()-ts>MAX_AGE)return null;return {source,body,date,ts,link:`https://x.com/${u.username}/status/${tweet.id}`};}).filter(Boolean);}catch{return []}finally{clearTimeout(t)}});const settled=await Promise.allSettled(jobs);return settled.flatMap(r=>r.status==='fulfilled'?r.value:[])}
+
+function dedupePosts(a){const seen=new Set();return a.sort((x,y)=>y.ts-x.ts).filter(p=>{const k=p.link;if(!k||seen.has(k))return false;seen.add(k);return true})}
+
+export async function GET(){
+ try{
+  const officialPromise=fetchOfficialX();
+  const discoveryJobs=[];
+  for(const h of HANDLES){discoveryJobs.push(discoverBing(h),discoverDdg(h));}
+  // Google/Jina is slower: use it on the highest-value accounts only.
+  for(const h of ['skysport','tuttosport','gazzetta_it','corsport','dimarzio','fabrizioromano','nicoschira','romeoagresti','giovaalbanese','alfredopedulla','tuttomercatoweb','cmdotcom','glongari']) discoveryJobs.push(discoverGoogleViaJina(h));
+  const discoveredSettled=await Promise.allSettled(discoveryJobs);
+  const discovered=dedupeCandidates(discoveredSettled.flatMap(r=>r.status==='fulfilled'?r.value:[])).slice(0,90);
+
+  const enriched=[];
+  for(let i=0;i<discovered.length;i+=10){
+   const batch=await Promise.allSettled(discovered.slice(i,i+10).map(fetchOembed));
+   enriched.push(...batch.flatMap(r=>r.status==='fulfilled'&&r.value?[r.value]:[]));
+   if(enriched.length>=60)break;
+  }
+  const publicPosts=enriched.filter(p=>p.source==='Juventus'||RELEVANT.test(p.body));
+  const official=await officialPromise;
+  const posts=dedupePosts([...official,...publicPosts]).slice(0,220);
+  const sources=[...new Set(posts.map(p=>p.source))];
+  return NextResponse.json({posts,generatedAt:new Date().toISOString(),officialX:Boolean(process.env.X_BEARER_TOKEN||process.env.TWITTER_BEARER_TOKEN),sourceCount:sources.length,discovered:discovered.length,mode:'hybrid-free'},{headers:{'Cache-Control':'public, s-maxage=60, stale-while-revalidate=180'}})
+ }catch{
+  return NextResponse.json({posts:[],degraded:true,mode:'hybrid-free'},{headers:{'Cache-Control':'no-store'}})
+ }
+}
